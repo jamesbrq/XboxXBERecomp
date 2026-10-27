@@ -4,7 +4,7 @@ Builds the player's extracted Xbox image against this SDK checkout. XDK 5659 bri
 
 The current local patched build targets the full `ghoulies_walktest.iso` mod. Its matching mod XBE is the compile input, including the executable `.ghmod` section; the runtime loads the complete ISO from `out/build/patched/assets`. The extracted mod folder contains overlay files only and cannot serve as the runtime's complete game folder. Previous cutscene-only source/configuration backups remain under ignored `out/backups`.
 
-The selected full-mod XBE SHA1 is `7193b60bc75240bdc0e75e184bbbb22b56e8e397`. `config/fullmod-functions.inc` adds its two indirect transition callbacks. Its assembly helpers also require condition flags to survive guest calls and returns; the recompiler now exchanges those flags through the guest context. A synthetic regression (no game data) exercises direct, indirect and tail calls, plus flag inputs to helpers:
+The selected full-mod XBE SHA1 is `7193b60bc75240bdc0e75e184bbbb22b56e8e397`. `config/fullmod-functions.inc` adds its 121 named assembly routine entries, checked against the mod builder, including indirect transition and special-weapon callbacks. Its assembly helpers also require condition flags to survive guest calls and returns; the recompiler now exchanges those flags through the guest context. A synthetic regression (no game data) exercises direct, indirect and tail calls, plus flag inputs to helpers:
 
 ```powershell
 python ../recomp/call_flags_test.py --compiler out/build/patched/compiler/xbe_recomp.exe --out out/call-flags-test
