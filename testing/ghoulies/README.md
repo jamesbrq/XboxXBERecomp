@@ -16,6 +16,8 @@ The verified local image is title `4D530053`, XDK **5659**, SHA1 `B119C16A023759
 
 This project enables CPU vertex conversion to avoid observed corruption in the raw vertex path. The renderer expands small DXT textures into their original dimensions instead of padding them, preserving the two-pixel lighting ramps used by the menu. The intro-to-menu crash was an unresolved BinkWait hook. Asynchronous stream stops and status reporting adapt upstream PR #3 to the merged PR #9 mixer; music stopping still needs gameplay transition checks.
 
+`prepare-config.ps1`, run by `build.bat` after scanning, adds the confirmed gameplay callback at `0x7FFB0`. It is installed dynamically by `0x7FE10` and was missed by automatic discovery, causing an indirect-call trap from `0x72AD2` during gameplay. When building directly with CMake after a new scan, run `prepare-config.ps1` first. The override is kept in `config/extra-functions.inc`, outside the compiler's full-config search.
+
 `run.ps1` records logs, frame captures (`-CaptureEvery 5` for shorter intervals), a float WAV, SDK revision/dirty state, executable/config hashes, and the XBE hash in ignored timestamped `runs` folders. It requests a normal close after the time limit, then stops a hung process. A normal exit does not prove correct gameplay or audio. Crash dumps remain beside the executable in `CrashDumps`.
 
 Check intro movies, menu lighting, character lighting, room transitions and a playable room. For sound, test overlapping effects, music changes, pause/resume and room changes. Compare `-NoHrtf` and `-NoReverb` separately when diagnosing sound. `-DebugGpu` uses the D3D12 debug layer if Windows Graphics Tools are installed. `-InputScript path` reads an inline SDK controller script from that file.

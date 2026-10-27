@@ -56,6 +56,8 @@ if not exist config mkdir config
 
 rem game
 :game
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0prepare-config.ps1"
+if errorlevel 1 goto :fail
 echo [3/3] Game code
 echo       first build recompiles %GAME_XBE%, expect 30 to 90 minutes ...
 cmake --build out\build\release || goto :fail
