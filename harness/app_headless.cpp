@@ -47,6 +47,8 @@ std::recursive_mutex& UiLock() {
     return m;
 }
 
-void Pace() {}
+void Pace(uint32_t) {}
+uint32_t TargetFps() { return 0; }
+std::chrono::steady_clock::time_point LastSwapSlot() { return {}; }
 
 }  // namespace app
