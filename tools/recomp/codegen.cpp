@@ -232,6 +232,8 @@ void CodeGen::EmitInsn(uint32_t va, const ZydisDecodedInstruction& in, const Zyd
     // control flow first
     switch (m) {
         case ZYDIS_MNEMONIC_CALL: {
+            // Hand-written helpers may consume or return condition flags.
+            Line("\tX86_SAVE_FLAGS();");
             if (ops[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
                 uint32_t t = uint32_t(next + ops[0].imm.value.s);
                 if (t == next) {  // call $+5 only pushes eip
@@ -252,6 +254,7 @@ void CodeGen::EmitInsn(uint32_t va, const ZydisDecodedInstruction& in, const Zyd
                 std::string ea = ops[0].type == ZYDIS_OPERAND_TYPE_MEMORY ? AddrExpr(ops[0]) : "";
                 Line(Fmt("\t{ uint32_t t = %s; X86_PUSH32(0x%Xu); x86_icall(ctx, base, t); }", Read(ops[0], ea).c_str(), next));
             }
+            Line("\tcf = ctx.cf; zf = ctx.zf; sf = ctx.sf; of = ctx.of; pf = ctx.pf;");
             pending_.valid = false;
             return;
         }
@@ -279,7 +282,7 @@ void CodeGen::EmitInsn(uint32_t va, const ZydisDecodedInstruction& in, const Zyd
                            uint32_t(ops[0].mem.disp.value) < an_.img.kernel_thunk + 0x400) {
                     uint32_t ord = 0;
                     an_.img.Read32(uint32_t(ops[0].mem.disp.value), ord);
-                    Line(Fmt("\tx86_kernel(ctx, base, %u); return;", ord & 0x7FFFFFFF));
+                    Line(Fmt("\tX86_SAVE_FLAGS(); x86_kernel(ctx, base, %u); return;", ord & 0x7FFFFFFF));
                 } else {
                     Line(Fmt("\t{ uint32_t t = %s; X86_SAVE_FLAGS(); x86_icall(ctx, base, t); return; }", Read(ops[0], ea).c_str()));
                 }
@@ -289,7 +292,7 @@ void CodeGen::EmitInsn(uint32_t va, const ZydisDecodedInstruction& in, const Zyd
         }
         case ZYDIS_MNEMONIC_RET: {
             uint32_t n = in.operand_count_visible && ops[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE ? uint32_t(ops[0].imm.value.u) : 0;
-            Line(Fmt("\tctx.esp += %u; return;", 4 + n));
+            Line(Fmt("\tX86_SAVE_FLAGS(); ctx.esp += %u; return;", 4 + n));
             pending_.valid = false;
             return;
         }
