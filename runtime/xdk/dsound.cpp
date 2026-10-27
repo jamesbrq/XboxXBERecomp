@@ -267,6 +267,9 @@ struct Voice {
     uint32_t owned = 0;  // memory the library made for the buffer
     bool playing = false, looping = false, paused = false;
     bool sync = false;  // held until IDirectSound_SynchPlayback
+    bool flush_pending = false, released = false;
+    int64_t release_at = 0, release_ms = 0;
+    uint32_t eg_release_ms = 0;
     bool active = false, ending = false;  // stream: took a packet since it went quiet, quiet again once they run out
     double pos = 0;  // frames
     uint32_t freq = 0;
@@ -1106,6 +1109,11 @@ std::optional<Cursor> BufferFrame(Voice& v) {
     return at;
 }
 
+int64_t NowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
 // Adds the voice to the bins, frames of kBins interleaved, its levels ramped across the block. What it sends to the
 // submix it plays into goes to the submix's input instead, and a mix-in or effect-in buffer plays its input.
 void MixVoice(Voice& v, float* bins, uint32_t frames) {
@@ -1115,6 +1123,11 @@ void MixVoice(Voice& v, float* bins, uint32_t frames) {
     float* send = to && to->input.size() >= frames ? to->input.data() : nullptr;
     Place at = Locate(v);
     Gains target = Levels(v, at);
+    if (v.flush_pending && v.release_ms > 0) {
+        float left = std::clamp(1.0f - float(NowMs() - v.release_at) / float(v.release_ms), 0.0f, 1.0f);
+        for (auto& row : target.bin)
+            for (float& gain : row) gain *= left;
+    }
     bool ears = at.ears && v.channels == 1;
     // the ears' filters and delay, ramped across the block like the levels
     float hrir[2][kHrirTaps] = {};
@@ -1199,7 +1212,7 @@ void MixVoice(Voice& v, float* bins, uint32_t frames) {
     v.out_peak = std::max(v.out_peak, peak);
 }
 
-bool Sounding(const Voice& v) { return !v.paused && !v.sync && (v.stream || v.playing); }
+bool Sounding(const Voice& v) { return !v.paused && !v.sync && !v.released && (v.stream || v.playing); }
 
 // how many submixes the voice plays through: the deeper submix plays first
 int Depth(const Voice& v) {
@@ -1261,6 +1274,16 @@ void Render(float* out, uint32_t frames) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     std::vector<std::pair<int, Voice*>> submixes;
     for (auto& [obj, v] : g_voices) {
+        // PR #3: complete asynchronous XACT stops on the mixer, after the caller
+        // has marked the cue stopping; late packets complete on a later mix too.
+        if (v.released || (v.flush_pending && NowMs() - v.release_at >= v.release_ms)) {
+            v.flush_pending = false;
+            v.released = true;
+            for (auto& packet : v.packets) Complete(v, packet, kFlushed);
+            v.packets.clear();
+            v.pos = 0;
+            Deactivate(v);
+        }
         if (IsSubmix(v)) {
             v.input.assign(frames, 0.0f);
             submixes.push_back({Depth(v), &v});
@@ -1312,10 +1335,6 @@ void Render(float* out, uint32_t frames) {
     for (uint32_t i = 0; i < frames * 2; i++) out[i] = std::clamp(out[i], -1.0f, 1.0f);
 }
 
-int64_t NowMs() {
-    using namespace std::chrono;
-    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
-}
 
 void Run(X86Context& ctx, const std::vector<Done>& done) {
     for (const Done& d : done) CallGuest(ctx, d.callback, {d.context, d.packet_context, d.status});
@@ -2202,6 +2221,7 @@ HLE_STDCALL(IDirectSound_CreateSoundStream, 4) { return NewStream(a[1], a[2]); }
 
 // the stream's callbacks still queued and those of its flushed packets, in order, go to the calling thread
 static void FlushStream(Voice& v) {
+    v.flush_pending = v.released = false;
     for (auto& pk : v.packets) Complete(v, pk, kFlushed);
     v.packets.clear();
     v.pos = 0;
@@ -2242,7 +2262,10 @@ STREAM(GetInfo, 2) {
     return 0;
 }
 STREAM(GetStatus, 2) {
-    W32(a[1], v.packets.size() < v.max_packets ? 1u : 0u);  // XMEDIASTATUS_ACCEPT_INPUT
+    uint32_t status = v.packets.size() < v.max_packets ? 1u : 0u;
+    if (v.active) status |= 0x10000u;  // DSSTREAMSTATUS_PLAYING, polled by XACT
+    if (v.paused) status |= 0x20000u;
+    W32(a[1], status);
     return 0;
 }
 STREAM(Process, 3) {
@@ -2252,6 +2275,7 @@ STREAM(Process, 3) {
     if (pk.completed_ptr) W32(pk.completed_ptr, 0);
     if (pk.status_ptr) W32(pk.status_ptr, kPacketPending);
     v.packets.push_back(pk);
+    if (v.released) return 0;  // a stopped cue must not restart when XACT feeds it
     bool starting = !v.active;
     if (starting) Restart(v);  // after going quiet a stream starts fresh
     v.active = true;
@@ -2270,6 +2294,12 @@ STREAM(Flush, 1) {
 }
 STREAM(FlushEx, 4) {
     if (a[3] && !v.active) return 0;
+    if (a[3] & 1) {
+        if (!v.flush_pending) v.release_at = NowMs();
+        v.release_ms = a[3] & 6 ? v.eg_release_ms : 0;
+        v.flush_pending = true;
+        return 0;
+    }
     FlushStream(v);
     return 0;
 }
@@ -2290,8 +2320,15 @@ STREAM(SetFilter, 2) {
     ReadFilter(v, a[1]);
     return 0;
 }
-// the library's own writes voice registers a host stream does not have; envelopes are not played
-HLE_STDCALL(IDirectSoundStream_SetEG, 2) { return 0; }
+// Retain the amplitude envelope's release time for asynchronous XACT stops.
+HLE_STDCALL(IDirectSoundStream_SetEG, 2) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    Voice* voice = Find(a[0]);
+    if (!voice && a[0] >= 0x1C) voice = Find(a[0] - 0x1C);
+    if (voice && a[1] && R32(a[1]) == 0)
+        voice->eg_release_ms = uint32_t(uint64_t(R32(a[1] + 24)) * 512 * 1000 / 48000);
+    return 0;
+}
 STREAM(SetHeadroom, 2) {
     v.headroom = Db(-int32_t(a[1]));
     return 0;

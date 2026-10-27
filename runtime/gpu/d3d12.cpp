@@ -33,6 +33,7 @@
 #include "core/diag.h"
 #include "core/log.h"
 #include "gpu/backend.h"
+#include "gpu/block_decode.h"
 #include "gpu/ext.h"
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
@@ -1859,11 +1860,7 @@ bool D3D12Backend::CreateTexture(Tex& tx, const TextureDesc& d, const FormatInfo
     uint32_t w = d.width;
     uint32_t h = d.height;
     tx.levels = d.levels;
-    if (bc && ((w & 3) || (h & 3))) {
-        w = (w + 3) & ~3u;
-        h = (h + 3) & ~3u;
-        tx.levels = 1;
-    }
+    if (bc && ((w & 3) || (h & 3))) tx.fmt = DXGI_FORMAT_B8G8R8A8_UNORM;
     D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_DEFAULT};
     D3D12_RESOURCE_DESC td{};
     td.Dimension = d.depth > 1 ? D3D12_RESOURCE_DIMENSION_TEXTURE3D : D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -1927,6 +1924,9 @@ void D3D12Backend::UploadTexture(Tex& tx, const TextureDesc& d, const FormatInfo
             uint32_t pitch;
             DecodeLevel(d, l, f, p, colours, px, pitch);
             if (ext_) ext_->Decoded(d, fi, f, l, px, pitch, tx.flags);
+            if (fi.compressed && tx.fmt == DXGI_FORMAT_B8G8R8A8_UNORM)
+                ExpandDxt(d.format, std::max(d.width >> l, 1u), std::max(d.height >> l, 1u),
+                          std::max(d.depth >> l, 1u), px, pitch);
             UploadTextureLevel(tx, f, l, px, pitch);
         }
     }
@@ -2692,7 +2692,22 @@ constexpr int kVsConstants = 192;
 constexpr int kVsConstantBias = 96;
 
 void D3D12Backend::CaptureInputs(const State& s, const Assembled& a, const DrawConstants& c) {
-    fprintf(cap_, "\n     verts");
+    fprintf(cap_, "\n     streams");
+    const auto& streams = s.custom_input ? s.input_streams : s.streams;
+    for (size_t stream = 0; stream < streams.size(); stream++) {
+        const auto& st = streams[stream];
+        if (st.vb) fprintf(cap_, " %zu:%08X/data%08X/stride%u/off%u", stream, st.vb, kernel::R32(st.vb + 4), st.stride, st.offset);
+    }
+    fprintf(cap_, "\n     declaration");
+    if (s.vs) {
+        const auto& inputs = s.custom_input ? s.custom_inputs : s.vs->inputs;
+        for (size_t r = 0; r < inputs.size(); r++) {
+            const auto& in = inputs[r];
+            if (a.regs >> r & 1) fprintf(cap_, " v%zu:s%d+%u/t%02X", r, in.stream, in.offset, in.type);
+        }
+    }
+    fprintf(cap_, "\n     fog %g %g %g %g color %g %g %g\n     verts", c.fog[0], c.fog[1], c.fog[2], c.fog[3],
+            c.fog_color[0], c.fog_color[1], c.fog_color[2]);
     uint32_t n = 0;
     for (int r = 0; r < 16; r++) n += (a.regs >> r) & 1;
     for (size_t v = 0; v < std::min<size_t>(4, n ? a.vertices.size() / (n * 4) : 0); v++) {

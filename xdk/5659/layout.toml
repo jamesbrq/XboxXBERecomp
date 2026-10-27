@@ -1,0 +1,51 @@
+# XDK 5659, Grabbed by the Ghoulies (title 4D530053).
+# Addresses below refer to the local retail default.xbe; no library code is stored.
+# Unlinked/unproven members (including index buffers and palettes) remain unknown.
+[layout]
+CDevice_Push                 = 0x0  # 0x174A32 reads the push cursor
+CDevice_PushThreshold        = 0x4  # 0x174A35 compares its limit
+CDevice_ZScale               = 0x944  # 0x1711A4 multiplies the viewport Z range
+CDevice_SuperSampleX         = 0x958  # 0x1710FE multiplies viewport X
+CDevice_SuperSampleY         = 0x95C  # 0x171120 multiplies viewport Y
+CDevice_Transforms           = 0xC50  # 0x173DB6: base + transform * 64
+CDevice_Textures             = 0xF78  # 0x1749F0 reads and 0x174A29 writes stage * 4
+CDevice_RenderTarget         = 0x19F4  # 0x174776 returns the current target
+CDevice_Depth                = 0x19F8  # 0x174796 returns the depth surface
+CDevice_BackBuffer           = 0x1A04  # 0x174420 with index zero
+CDevice_FrontBuffer          = 0x1A08  # 0x174405 with index minus one
+CDevice_SwapCount            = 0x2468  # 0x176820 increments and 0x17689B returns it
+CDevice_Size                 = 0x2490  # 0x17F92B clears 0x924 dwords
+CDevice_Flags                = 0x8  # 0x17F903 stores BehaviorFlags
+CDevice_Time                 = 0x2C  # 0x177765 passes it to BlockOnTime
+CDevice_PixelShader          = 0x780  # 0x175388 stores the shader handle
+CDevice_VertexShader         = 0x790  # 0x17371C stores the current shader
+CDevice_BackBufferScale      = 0x968  # 0x17A2AB stores X and 0x17A2C4 stores Y
+CDevice_Viewport             = 0xED0  # 0x174960 writes X; adjacent fields through 0x17498C
+CDevice_ScreenSpaceOffset    = 0xEE8  # 0x175073 writes X; Y follows at +4
+CDevice_AutoDepth            = 0x1A10  # 0x17A693 stores the allocated depth surface
+CDevice_VBlankCallback       = 0x1DA8  # 0x173F5A stores the callback
+CDevice_VBlankEvent          = 0x1DAC  # 0x173F87 passes the event to KeWaitForSingleObject
+CDevice_DisplayFlags         = 0x1DCC  # 0x175E6B tests interlaced mode in miniport +0x1B4
+CDevice_VBlankCount          = 0x1DD8  # 0x175EFB updates miniport +0x1C0
+CDevice_GammaRamps           = 0x1DF4  # 0x173D40 uses miniport +0x1DC, with miniport base +0x1C18
+CDevice_GammaPending         = 0x23F4  # 0x173D81 uses miniport +0x7DC + index * 4
+CDevice_MultiSampleType      = 0x195C  # 0x17A29B stores presentation MultiSampleType
+CDevice_FrameBufferCount     = 0x1A00  # 0x17A249 stores BackBufferCount + 1
+CDevice_SwapEffect           = 0x1960  # 0x17A239 stores presentation SwapEffect
+CDevice_GridSize             = 0x950  # 0x172165 and 0x17216B store grid width and height
+CDevice_SuperSampleMin       = 0x960  # 0x1721BE stores the smaller factor
+CDevice_SuperSampleLog2      = 0x964  # 0x1721D9 stores the looked-up logarithm
+DirtyFlags_Texture           = 0x4800  # 0x174A67 ORs the texture dirty bits
+TextureState_Stage           = 0x20  # 0x171ADB shifts stage left five before indexing dwords
+Stream_Size                  = 0xC  # 0x17362A computes stream * 3, then shifts left two
+Stream_Stride                = 0x0  # 0x173672 writes stride relative to 0x1842A0
+Stream_Buffer                = 0x8  # 0x173678 writes buffer relative to 0x1842A0
+PixelShader_Definition       = 0x8  # 0x1753F0 reads the definition pointer
+CDirectSoundStream_Vtable    = 0x0  # 0x1C64AE stores the primary stream vtable
+CDirectSoundStream_Vtable2   = 0x4  # 0x1C64AB and 0x1C64B4 store the secondary vtable
+EffectsImage_Skip0           = 0x804  # 0x1C9692 adds this dword count
+EffectsImage_Skip1           = 0x80C  # 0x1C968C reads this dword count
+EffectsImage_Desc            = 0x818  # 0x1C969B forms image + counts * 4 + descriptor
+XPP_Current = 0x0 # XGetDevices 0x1FDD40 reads Current
+XPP_Changed = 0x4 # 0x1FDD42 clears Changed
+XPP_Previous = 0x8 # 0x1FDD48 copies Current into Previous

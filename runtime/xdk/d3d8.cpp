@@ -98,6 +98,10 @@ bool InCode(uint32_t va);  // cpu/dispatch.cpp
 #define SYM_D3DDevice_SetDepthClipPlanes FFFFFE0D
 #define HAS_D3DDevice_SetDepthClipPlanes 0
 #endif
+#ifndef SYM_D3DDevice_SetVertexShaderInput
+#define SYM_D3DDevice_SetVertexShaderInput FFFFFE0E
+#define HAS_D3DDevice_SetVertexShaderInput 0
+#endif
 
 namespace d3d {
 
@@ -575,8 +579,8 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
     XDK_REQUIRE("d3d", XDK_DATA(D3D_Device), XDK_DATA(D3D_pDevice), XDK_DATA(D3D_DirtyFlags),
                 XDK_DATA(D3D_DeferredTextureState), XDK_DATA(D3D_RenderState), XDK_DATA(D3D_Streams),
                 XDK_DATA(D3D_SimpleRenderStateEncode));
-    XDK_REQUIRE("d3d", XDK_KEY(CDevice_Push), XDK_KEY(CDevice_PushThreshold), XDK_KEY(CDevice_BaseVertex),
-                XDK_KEY(CDevice_IndexBuffer), XDK_KEY(CDevice_ZScale), XDK_KEY(CDevice_SuperSampleX),
+    XDK_REQUIRE("d3d", XDK_KEY(CDevice_Push), XDK_KEY(CDevice_PushThreshold),
+                XDK_KEY(CDevice_ZScale), XDK_KEY(CDevice_SuperSampleX),
                 XDK_KEY(CDevice_SuperSampleY), XDK_KEY(CDevice_Transforms), XDK_KEY(CDevice_Textures),
                 XDK_KEY(CDevice_RenderTarget), XDK_KEY(CDevice_Depth), XDK_KEY(CDevice_BackBuffer),
                 XDK_KEY(CDevice_FrontBuffer), XDK_KEY(CDevice_SwapCount), XDK_KEY(CDevice_Size),
@@ -1359,7 +1363,7 @@ HLE_STDCALL(D3DDevice_SetStreamSource, 3) {
 }
 
 HLE_STDCALL(D3DDevice_SetIndices, 2) {
-    XDK_REQUIRE("d3d", XDK_DATA(D3D_IndexData));
+    XDK_REQUIRE("d3d", XDK_DATA(D3D_IndexData), XDK_KEY(CDevice_BaseVertex), XDK_KEY(CDevice_IndexBuffer));
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     uint32_t ib = a[0];
     uint32_t old = Dev(kDevIndexBuffer);
@@ -1568,6 +1572,31 @@ std::shared_ptr<gpu::VertexShader> SelectedShader(uint32_t handle, uint32_t slot
 }
 }  // namespace
 
+// (declaration handle, stream count, {vertex buffer, stride, byte offset}[]):
+// Ghoulies 5659 at 0x173B60; the array address calculation at 0x173CC0..0x173CCF
+// adds both the declaration offset and the stream's byte offset to the buffer.
+HLE_STDCALL(D3DDevice_SetVertexShaderInput, 3) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    if (a[1] > g_state.input_streams.size() || (a[0] && a[1] && !a[2])) return 0x8876086Cu;
+    gpu::VertexShader layout;
+    std::array<gpu::State::Stream, 16> streams{};
+    if (a[0]) {
+        ApplyShaderInputs(a[0], layout);
+        for (uint32_t i = 0; i < a[1]; i++) {
+            uint32_t p = a[2] + i * 12;
+            streams[i] = {R32(p), R32(p + 4), R32(p + 8)};
+            AddRef(ctx, streams[i].vb);
+        }
+    }
+    for (const auto& stream : g_state.input_streams) Release(ctx, stream.vb);
+    g_state.input_streams = streams;
+    g_state.custom_inputs = layout.inputs;
+    g_state.custom_strides = layout.stream_stride;
+    g_state.custom_input = a[0] != 0;
+    LOG_FIRST(8, "d3d: SetVertexShaderInput %08X, %u streams", a[0], a[1]);
+    return 0;
+}
+
 // (handle, slot): the program a shader was made with, stored at the slot
 HLE_STDCALL(D3DDevice_LoadVertexShader, 2) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
@@ -1747,7 +1776,7 @@ uint32_t g_push_begin = 0;
 // Begin/End immediate mode. Titles inline Begin and the vertex data calls, so their commands are read from the scratch buffer.
 namespace d3d {
 namespace {
-uint32_t g_im_prim = 0, g_im_mask = 0;  // open primitive, slots it wrote
+uint32_t g_im_prim = 0, g_im_mask = 0;  // open primitive, persistent current attribute slots
 float g_im_attr[64];                    // 16 slots of x y z w
 std::vector<float> g_im_vertices;       // every slot per vertex
 
@@ -1808,7 +1837,6 @@ bool ApplyImmediate(uint32_t m, uint32_t v) {
     if (m == 0x17FC) {  // begin/end, 0 ends
         if (v) {
             g_im_prim = v;
-            g_im_mask = 0;
             g_im_vertices.clear();
         } else {
             EndPrimitive();
@@ -1837,8 +1865,8 @@ bool ApplyImmediate(uint32_t m, uint32_t v) {
     } else {
         return false;
     }
-    if (!g_im_prim) return true;
     g_im_mask |= 1u << (a - g_im_attr) / 4;
+    if (!g_im_prim) return true;
     if (a == g_im_attr && last) g_im_vertices.insert(g_im_vertices.end(), g_im_attr, g_im_attr + 64);
     return true;
 }
@@ -2014,7 +2042,6 @@ HLE_STDCALL(D3DDevice_Begin, 1) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     Walk(Dev(kDevPush));
     g_im_prim = a[0];
-    g_im_mask = 0;
     g_im_vertices.clear();
     SetDev(XDK_CDevice_Flags, Dev(XDK_CDevice_Flags) | 0x800);
     return 0;

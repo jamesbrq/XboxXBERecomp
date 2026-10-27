@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.25)
+project(vertex_input_tests LANGUAGES CXX)
+enable_testing()
+foreach(raw 0 1)
+    add_executable(vertex_input_${raw} input_test.cpp ../../runtime/gpu/vertex.cpp)
+    target_include_directories(vertex_input_${raw} PRIVATE ../../runtime)
+    target_compile_features(vertex_input_${raw} PRIVATE cxx_std_20)
+    target_compile_definitions(vertex_input_${raw} PRIVATE XBE_RAW_VERTICES=${raw})
+    # Keep assertions active in release test builds too.
+    target_compile_options(vertex_input_${raw} PRIVATE -UNDEBUG)
+    add_test(NAME vertex_input_${raw} COMMAND vertex_input_${raw})
+endforeach()
+
+add_executable(block_decode block_decode_test.cpp)
+target_include_directories(block_decode PRIVATE ../../runtime)
+target_compile_features(block_decode PRIVATE cxx_std_20)
+target_compile_options(block_decode PRIVATE -UNDEBUG)
+add_test(NAME block_decode COMMAND block_decode)

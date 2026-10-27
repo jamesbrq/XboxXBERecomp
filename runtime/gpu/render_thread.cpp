@@ -133,7 +133,7 @@ public:
         cur_->cmds.push_back(c);
         for (uint32_t tex : s.textures) Use(tex);
         for (uint32_t pal : s.palettes) Use(pal);
-        for (const auto& st : s.streams) Use(st.vb);
+        for (const auto& st : (s.custom_input ? s.input_streams : s.streams)) Use(st.vb);
         Use(s.rt.header);
         Use(s.zs.header);
         Written(s.rt);
@@ -370,6 +370,9 @@ private:
         auto streams = s.streams;
         for (auto& st : streams) st.vb = Header(st.vb);
         Delta(&sent_.streams, &streams, sizeof(streams));
+        auto input_streams = s.input_streams;
+        for (auto& st : input_streams) st.vb = Header(st.vb);
+        Delta(&sent_.input_streams, &input_streams, sizeof(input_streams));
         Surface rt = s.rt, zs = s.zs;
         rt.header = Header(rt.header);
         zs.header = Header(zs.header);

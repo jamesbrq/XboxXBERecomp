@@ -1,8 +1,10 @@
 param(
     [ValidateRange(1, 3600)][int]$Seconds = 120,
+    [ValidateRange(1, 3600)][int]$CaptureEvery = 15,
     [switch]$DebugGpu,
     [switch]$NoHrtf,
     [switch]$NoReverb,
+    [switch]$LeaveOpen,
     [string]$InputScript
 )
 $ErrorActionPreference = 'Stop'
@@ -12,12 +14,12 @@ $run = Join-Path $PSScriptRoot ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff
 New-Item -ItemType Directory -Path $run -Force | Out-Null
 $vars = @{
     XBE_VERBOSE = '1'; XBE_PERF = '1'; XBE_TRACE_KERNEL = '1'
-    XBE_CAPTURE_DIR = $run; XBE_CAPTURE_EVERY = '15'
+    XBE_CAPTURE_DIR = $run; XBE_CAPTURE_EVERY = [string]$CaptureEvery
     XBE_AUDIO_DUMP = (Join-Path $run 'audio.wav')
     XBE_D3D12_DEBUG = $(if ($DebugGpu) { '1' } else { $null })
     XBE_NO_HRTF = $(if ($NoHrtf) { '1' } else { $null })
     XBE_NO_REVERB = $(if ($NoReverb) { '1' } else { $null })
-    XBE_INPUT_SCRIPT = $(if ($InputScript) { (Resolve-Path -LiteralPath $InputScript).Path } else { $null })
+    XBE_INPUT_SCRIPT = $(if ($InputScript) { (Get-Content -LiteralPath $InputScript -Raw).Trim() } else { $null })
 }
 $saved = @{}
 try {
@@ -26,7 +28,12 @@ try {
         [Environment]::SetEnvironmentVariable($key, $vars[$key], 'Process')
     }
     $process = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -WindowStyle Hidden -PassThru
-    $finished = $process.WaitForExit($Seconds * 1000)
+    if ($LeaveOpen) {
+        $process.WaitForExit()
+        $finished = $true
+    } else {
+        $finished = $process.WaitForExit($Seconds * 1000)
+    }
     if (!$finished) {
         # Ask for a normal close so audio dumps and logs can finish writing.
         $null = $process.CloseMainWindow()
@@ -37,7 +44,11 @@ try {
     $process.Refresh()
     $result = [ordered]@{
         sdk = (& 'C:\Program Files\Git\cmd\git.exe' -C $PSScriptRoot rev-parse HEAD)
+        sdkDirty = [bool](& 'C:\Program Files\Git\cmd\git.exe' -C $PSScriptRoot status --porcelain --untracked-files=normal)
+        executableSha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+        configSha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'config\game.toml') -Algorithm SHA256).Hash
         seconds = $Seconds; exitCode = $process.ExitCode; forcedTermination = $forced
+        leaveOpen = [bool]$LeaveOpen
         noHrtf = [bool]$NoHrtf; noReverb = [bool]$NoReverb; debugGpu = [bool]$DebugGpu
         xbeSha1 = (Get-FileHash (Join-Path $PSScriptRoot 'assets\default.xbe') -Algorithm SHA1).Hash
     }

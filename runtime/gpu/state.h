@@ -170,8 +170,10 @@ struct State {
     struct Stream {
         uint32_t vb = 0;  // guest D3DVertexBuffer
         uint32_t stride = 0;
+        uint32_t offset = 0;  // SetVertexShaderInput's byte offset within the buffer
     };
     std::array<Stream, 16> streams{};
+    std::array<Stream, 16> input_streams{};
     uint32_t index_buffer = 0, index_data = 0, base_vertex = 0;
     uint32_t vs_handle = 0;  // programmable when bit 0 set, otherwise an FVF
     std::shared_ptr<VertexShader> vs;
@@ -187,6 +189,10 @@ struct State {
     std::array<float, 17> material{};
     std::array<std::array<uint32_t, 26>, 8> lights{};  // D3DLIGHT8
     uint32_t light_enable = 0;                         // bit per light
+    // SetVertexShaderInput supplies a declaration and streams independently of the active program.
+    bool custom_input = false;
+    std::array<VertexShader::Input, 16> custom_inputs{};
+    std::array<uint32_t, 16> custom_strides{};
     float ss_offset_x = 0, ss_offset_y = 0;
     float zscale = 16777215.0f;  // depth buffer units per 1.0
     // D3DDevice_SetDepthClipPlanes: near and far in depth buffer units, for fixed function (0, 1) and vertex programs

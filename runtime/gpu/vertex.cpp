@@ -214,6 +214,11 @@ struct IndexBounds {
 
 // the declaration's register layout, or the one an FVF handle stands for, built into fvf_layout
 const VertexShader* PickLayout(const State& s, VertexShader& fvf_layout) {
+    if (s.custom_input) {
+        fvf_layout.inputs = s.custom_inputs;
+        fvf_layout.stream_stride = s.custom_strides;
+        return &fvf_layout;
+    }
     if (!(s.vs_handle & 1)) {
         FvfInputs(s.vs_handle, fvf_layout);
         return &fvf_layout;
@@ -252,7 +257,7 @@ int CollectRegs(const State& s, const VertexShader& layout, int* regs, Assembled
     for (int r = 0; r < 16; r++) {
         const auto& in = layout.inputs[size_t(r)];
         if (in.stream < 0 || !in.type || in.type == kTypeNone) continue;
-        const auto& st = s.streams[size_t(in.stream)];
+        const auto& st = (s.custom_input ? s.input_streams : s.streams)[size_t(in.stream)];
         if (!st.vb) continue;
         regs[nregs++] = r;
         out.regs |= uint16_t(1u << r);
@@ -261,7 +266,7 @@ int CollectRegs(const State& s, const VertexShader& layout, int* regs, Assembled
 }
 
 uint32_t StrideOf(const State& s, const VertexShader& layout, const VertexShader::Input& in) {
-    const auto& st = s.streams[size_t(in.stream)];
+    const auto& st = (s.custom_input ? s.input_streams : s.streams)[size_t(in.stream)];
     return st.stride ? st.stride : layout.stream_stride[size_t(in.stream)];
 }
 
@@ -297,9 +302,9 @@ void GatherVertices(const State& s, const DrawRange& d, const uint8_t* data, uin
 int AddRawBuffer(const State& s, const VertexShader& layout, const VertexShader::Input& in, const DrawRange& d,
                  bool dense, Assembled& out) {
     using namespace kernel;
-    const auto& st = s.streams[size_t(in.stream)];
+    const auto& st = (s.custom_input ? s.input_streams : s.streams)[size_t(in.stream)];
     uint32_t stride = StrideOf(s, layout, in);
-    const uint8_t* data = static_cast<const uint8_t*>(HostPtr(mem::VirtualFromPhysical(R32(st.vb + kResData))));
+    const uint8_t* data = static_cast<const uint8_t*>(HostPtr(mem::VirtualFromPhysical(R32(st.vb + kResData)) + st.offset));
     int slot = int(out.buffer_count);
     if (dense) {
         out.buffers[out.buffer_count++] = {data + size_t(d.first_vertex) * stride, d.span * stride, stride};
@@ -389,10 +394,10 @@ bool AssembleConverted(const State& s, const Inputs& inputs, const DrawRange& d,
     out.vertices.resize(size_t(n) * nregs * 4);
     for (int k = 0; k < nregs; k++) {
         const auto& in = inputs.layout.inputs[size_t(inputs.regs[k])];
-        const auto& st = s.streams[size_t(in.stream)];
+        const auto& st = (s.custom_input ? s.input_streams : s.streams)[size_t(in.stream)];
         uint32_t data = mem::VirtualFromPhysical(R32(st.vb + kResData));
         uint32_t stride = StrideOf(s, inputs.layout, in);
-        const uint8_t* src = static_cast<const uint8_t*>(HostPtr(data + in.offset));
+        const uint8_t* src = static_cast<const uint8_t*>(HostPtr(data + st.offset + in.offset));
         for (uint32_t v = 0; v < n; v++) {
             uint32_t id = ranged ? d.first_vertex + v : seq[v];
             Convert(in.type, src + size_t(id) * stride, &out.vertices[(size_t(v) * nregs + k) * 4]);

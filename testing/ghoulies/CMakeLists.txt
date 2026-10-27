@@ -25,4 +25,15 @@ if(NOT GAME_PARTITIONS)
 endif()
 
 # target name = GAME_EXE in build.bat, xbe = GAME_XBE
-add_xbe_image(Ghoulies default.xbe game.toml ${GAME_PARTITIONS} game)
+option(GHOULIES_TOOLS_ONLY "Build SDK tools before the game's XDK tables are available" OFF)
+if(NOT GHOULIES_TOOLS_ONLY)
+    add_xbe_image(Ghoulies default.xbe game.toml ${GAME_PARTITIONS} game)
+    # CPU conversion avoids the raw input path's geometry corruption in this title.
+    target_compile_definitions(Ghoulies PRIVATE XBE_RAW_VERTICES=0)
+    # The release runtime otherwise recompiles when an unchanged import library
+    # leaves its native DLL older than the executable after a host-only edit.
+    add_custom_target(ghoulies_test_ready ALL
+        COMMAND ${CMAKE_COMMAND} -E touch $<TARGET_FILE:Ghoulies_code>
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${XBE_COMPILER_DIR}/work/Ghoulies/built.txt
+        DEPENDS Ghoulies Ghoulies_code VERBATIM)
+endif()
