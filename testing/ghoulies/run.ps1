@@ -1,14 +1,16 @@
 param(
+    [ValidateSet('patched', 'release')][string]$Build = 'patched',
     [ValidateRange(1, 3600)][int]$Seconds = 120,
     [ValidateRange(1, 3600)][int]$CaptureEvery = 15,
     [switch]$DebugGpu,
     [switch]$NoHrtf,
     [switch]$NoReverb,
     [switch]$LeaveOpen,
+    [switch]$Timed,
     [string]$InputScript
 )
 $ErrorActionPreference = 'Stop'
-$exe = Join-Path $PSScriptRoot 'out\build\release\Ghoulies.exe'
+$exe = Join-Path $PSScriptRoot "out\build\$Build\Ghoulies.exe"
 if (!(Test-Path -LiteralPath $exe)) { throw 'Build Ghoulies with build.bat first.' }
 $run = Join-Path $PSScriptRoot ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $run -Force | Out-Null
@@ -28,7 +30,7 @@ try {
         [Environment]::SetEnvironmentVariable($key, $vars[$key], 'Process')
     }
     $process = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -WindowStyle Hidden -PassThru
-    if ($LeaveOpen) {
+    if ($LeaveOpen -or !$Timed) {
         $process.WaitForExit()
         $finished = $true
     } else {
@@ -48,7 +50,7 @@ try {
         executableSha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
         configSha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'config\game.toml') -Algorithm SHA256).Hash
         seconds = $Seconds; exitCode = $process.ExitCode; forcedTermination = $forced
-        leaveOpen = [bool]$LeaveOpen
+        build = $Build; leaveOpen = [bool]($LeaveOpen -or !$Timed)
         noHrtf = [bool]$NoHrtf; noReverb = [bool]$NoReverb; debugGpu = [bool]$DebugGpu
         xbeSha1 = (Get-FileHash (Join-Path $PSScriptRoot 'assets\default.xbe') -Algorithm SHA1).Hash
     }

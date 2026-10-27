@@ -15,7 +15,7 @@ echo.
 set "PF86=%ProgramFiles(x86)%"
 set "VSINST=%PF86%\Microsoft Visual Studio\Installer"
 set "VSWHERE=%VSINST%\vswhere.exe"
-set "OUT=%CD%\out\build\release"
+set "OUT=%CD%\out\build\patched"
 
 if not exist assets\%GAME_XBE% goto :nogame
 
@@ -45,12 +45,12 @@ for /f "tokens=*" %%v in ('clang++ --version ^| findstr /i version') do echo    
 
 rem symbols
 echo [2/3] XDK symbols
-cmake --preset release >nul || goto :fail
+cmake --preset patched >nul || goto :fail
 findstr /b /l /c:"[symbols]" config\game.toml >nul 2>nul && echo       config\game.toml already written && goto :game
-cmake --build out\build\release --target xbe_symbols >nul || goto :fail
+cmake --build out\build\patched --target xbe_symbols >nul || goto :fail
 rem the configure step wrote where the SDK is
-if not exist out\build\release\sdk_dir.txt echo       out\build\release\sdk_dir.txt was not written, update the SDK. && goto :fail
-set /p SDK=<out\build\release\sdk_dir.txt
+if not exist out\build\patched\sdk_dir.txt echo       out\build\patched\sdk_dir.txt was not written, update the SDK. && goto :fail
+set /p SDK=<out\build\patched\sdk_dir.txt
 if not exist config mkdir config
 "%OUT%\xbe_symbols.exe" assets\%GAME_XBE% "%SDK%\xdk" --library %GAME_EXE%.dll --out config\game.toml || goto :fail
 
@@ -60,11 +60,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0prepare-config.ps1"
 if errorlevel 1 goto :fail
 echo [3/3] Game code
 echo       first build recompiles %GAME_XBE%, expect 30 to 90 minutes ...
-cmake --build out\build\release || goto :fail
+cmake --build out\build\patched || goto :fail
 
 echo.
 echo   %GAME_TITLE% built.
-echo   out\build\release\%GAME_EXE%.exe
+echo   out\build\patched\%GAME_EXE%.exe
 echo.
 if defined CI exit /b 0
 choice /c YN /n /m "  Play now? [Y/N] "

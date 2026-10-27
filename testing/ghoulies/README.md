@@ -7,7 +7,7 @@ From PowerShell in this folder:
 ```powershell
 .\setup.ps1 -GameFiles 'H:\GhidraProjects\ghoulies-decomp\gbtg'
 .\build.bat
-.\run.ps1 -Seconds 120
+.\run.ps1
 ```
 
 Setup creates an ignored `assets` junction. The build needs Visual Studio C++ tools, Clang, Ninja, and network access for pinned dependencies. It scans the XBE into ignored `config/game.toml`; keep the `.example` template outside the runtime compiler's `*.toml` search. Preflight requires tables for the image's actual XDK version.
@@ -24,7 +24,7 @@ Check intro movies, menu lighting, character lighting, room transitions and a pl
 
 Local validation reached the menu with stable geometry, visible shaded book covers and a normal exit. Gameplay and music transition behavior remain manual validation items.
 
-Use `./run.ps1 -LeaveOpen` for hands-on play: it waits until you close the game yourself. Omit `-InputScript` to use a physical controller. Scripted tests deliberately override physical controllers. Immediate-mode UI colors are retained across Begin/End, fixing white save-slot/name-entry boxes.
+`build.bat` and `run.ps1` use `out/build/patched` by default. `run.ps1` waits until you close the game yourself; use `-Timed -Seconds 120` for an explicitly timed test, or `-Build release` only for a requested non-patched comparison. Omit `-InputScript` to use a physical controller. Scripted tests deliberately override physical controllers. Immediate-mode UI colors are retained across Begin/End, fixing white save-slot/name-entry boxes.
 
 Synthetic vertex and small DXT regression tests (no game files):
 
