@@ -1055,4 +1055,25 @@ void main(point VOut v[1], inout TriangleStream<VOut> strip) {
 )";
 }
 
+// Screen-space lines retain their console-pixel width when the target is upscaled.
+std::string LineHlsl() {
+    return Common() + R"(
+[maxvertexcount(4)]
+void main(line VOut v[2], inout TriangleStream<VOut> strip) {
+    if (abs(v[0].pos.w) < 1e-12 || abs(v[1].pos.w) < 1e-12) return;
+    float2 delta = (v[1].pos.xy / v[1].pos.w - v[0].pos.xy / v[0].pos.w) * surf.xy;
+    float length2 = dot(delta, delta);
+    if (length2 < 1e-12) return;
+    float2 normal = float2(-delta.y, delta.x) * rsqrt(length2) / surf.xy;
+    for (int end = 0; end < 2; ++end) {
+        VOut a = v[end], b = v[end];
+        a.pos.xy += normal * a.pos.w;
+        b.pos.xy -= normal * b.pos.w;
+        strip.Append(a);
+        strip.Append(b);
+    }
+}
+)";
+}
+
 }  // namespace gpu

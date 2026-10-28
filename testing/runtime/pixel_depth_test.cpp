@@ -32,6 +32,24 @@ static void Compile(const std::string& hlsl, bool depth) {
 }
 
 int main() {
+    // The UI's line geometry shader must compile as line input -> four-vertex
+    // triangle strip, preserving the vertex/pixel interface.
+    {
+        const auto source = gpu::LineHlsl();
+        ID3DBlob* code = nullptr; ID3DBlob* errors = nullptr;
+        HRESULT result = D3DCompile(source.data(), source.size(), nullptr, nullptr, nullptr,
+            "main", "gs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &code, &errors);
+        if (errors) { if (FAILED(result)) std::fprintf(stderr, "%s", (char*)errors->GetBufferPointer()); errors->Release(); }
+        assert(SUCCEEDED(result));
+        ID3D11ShaderReflection* reflection = nullptr;
+        assert(SUCCEEDED(D3DReflect(code->GetBufferPointer(), code->GetBufferSize(),
+            IID_ID3D11ShaderReflection, (void**)&reflection)));
+        D3D11_SHADER_DESC desc{}; reflection->GetDesc(&desc);
+        assert(desc.InputPrimitive == D3D_PRIMITIVE_LINE);
+        assert(desc.GSOutputTopology == D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        assert(desc.GSMaxOutputVertexCount == 4);
+        reflection->Release(); code->Release();
+    }
     gpu::PixelKey k{};
     k.programmable = 1;
     k.tex[1].kind = gpu::kTex2D;

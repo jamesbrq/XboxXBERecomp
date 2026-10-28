@@ -65,6 +65,7 @@ std::string QuadHlsl(std::string s);
 std::string ReversedDepthHlsl(std::string s);
 // the geometry shader that draws a point as its console pixel
 std::string PointHlsl();
+std::string LineHlsl();
 
 // HLSL a backend extension adds; the defaults write the console path
 struct ShaderHooks {

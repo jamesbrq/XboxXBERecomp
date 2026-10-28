@@ -2,6 +2,14 @@
 
 Work performed without a game launch or boot test.
 
+## Pause-panel striped backgrounds
+
+F3 capture `runs/20261027-222745-058/223430` shows striped borders on the Grand Hallway pause panels. Draws 958 and 972 are untextured fixed-function line lists (96 and 72 vertices, handle 0x43) with alpha blending; the capture contains no polygon-stipple draws. At the 3x render resolution, native D3D12's one-host-pixel lines leave gaps between adjacent console-pixel rows used to build the panel's rounded/faded border.
+
+Upscaled, unlit fixed-function lines (including XYZRHW lines) now use a line-input geometry shader to expand the primitive to one console pixel across. It retains endpoint varyings and depth, rejects degenerate/projectively invalid endpoints, and disables triangle culling for the generated strip. Native-resolution lines and programmable/lit line paths remain unchanged. The pipeline key distinguishes expanded lines. This addresses line coverage rather than changing panel opacity or removing its fade.
+
+The regression compiles and reflects the geometry shader to verify line input, triangle-strip output and four output vertices. All four runtime regression executables pass, and the patched EXE/DLL rebuilt without a game launch. The running game remains open on the previous files, preserved as `Ghoulies.before-ui-lines.*`. Manual visual validation is pending restart.
+
 ## Follow-up: menu confirm SFX and Grand Hallway failure
 
 ### Confirmed live failure and prepared asset repair

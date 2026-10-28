@@ -467,6 +467,7 @@ struct PsoKey {
     int32_t zbias;
     float zslope;
     uint32_t rtfmt;
+    uint32_t console_line;
 };
 
 // Blit's settings past the source and its rectangle
@@ -1831,6 +1832,14 @@ ID3D12PipelineState* D3D12Backend::EnsurePipeline(const PsoKey& k, ID3DBlob* vs,
     d.InputLayout = {el, n};
     FillPipelineDesc(k, vs, ps, d);
     if (k.topo == uint32_t(Topology::Points)) ExpandPoints(d);
+    if (k.console_line) {
+        uint64_t hash;
+        ID3DBlob* gs = Compile(LineHlsl(), "main", "gs_5_0", hash);
+        if (!gs) return nullptr;
+        d.GS = {gs->GetBufferPointer(), gs->GetBufferSize()};
+        d.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        d.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    }
     ComPtr<ID3D12PipelineState> pso;
     g_perf.psos++;
     if (FAILED(dev_->CreateGraphicsPipelineState(&d, IID_PPV_ARGS(&pso)))) LOGE("d3d12: pipeline creation failed");
@@ -2377,6 +2386,8 @@ float HostSlopeScale(const State& s, const Target* ds) {
 }
 
 void D3D12Backend::KeyDepthStencil(const State& s, const Assembled& a, PsoKey& k) {
+    k.console_line = a.topology == Topology::Lines && !s.vs &&
+                     (a.pretransformed || !s.rs[kRsLighting]) && TargetScale() > kUpscaledMin;
     k.zen = s.rs[kRsZEnable] != 0;
     if (k.zen) {
         k.zwrite = SimpleState(s, kMZWriteEnable) != 0;
