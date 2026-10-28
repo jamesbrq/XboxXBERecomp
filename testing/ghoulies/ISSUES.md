@@ -4,6 +4,18 @@ Work performed without a game launch or boot test.
 
 ## Follow-up: menu confirm SFX and Grand Hallway failure
 
+### Confirmed live failure and prepared asset repair
+
+The next manual run also displayed dirty-disc. Read-only inspection of the still-running process recovered the guest stack: `0x5b6ed -> 0x5baf4 -> 0x4d6b5 -> ExitGame(2)`. The fatal lookup is `aid_cutscene_ghoulies_doors_square_2_highleft_openevent`; its associated camera name is `aid_cutscene_ghoulies_doors_cameras_centralhallway_1openevent`. Both are absent. This identifies a missing door-transition resource, rather than a failed disc read or the carried chair itself.
+
+`repair-door-assets.py` creates a separate copy of the selected full mod ISO, adding seven aliases in the Central Hallway bundle for this unsupported event-door shape and camera. They reuse the existing noentry/open animation and event assets, following the companion mod tools' fallback approach. It verifies all 1,144 file payloads: only that room bundle changes; the XBE, executable mod section and cutscene skip remain identical. The source ISO is never edited. The repaired copy is staged as `assets/00-ghoulies_walktest-doorfix.iso` beside the patched executable, so the loader's sorted selection uses it on the next launch. The currently open process keeps its original disc handle and is left untouched. No boot test was performed; correct door progression and fallback appearance remain to be tested manually. This does not fix or validate missing menu SFX.
+
+To reproduce (destination must not already exist):
+
+```powershell
+python testing/ghoulies/repair-door-assets.py H:/GhidraProjects/ghoulies-decomp/build/ghoulies_walktest.iso testing/ghoulies/out/repairs/ghoulies_walktest-doorfix.iso --mod-tools H:/GhidraProjects/ghoulies-decomp/tools/modding
+```
+
 The manual run `20261027-210008-572` entered the game's dirty-disc handler at 40.725 seconds (loading `dirtydisk_bitmap`), then exited with code 0 when closed. There is no new native exception dump. The user was walking in the Grand Hallway carrying a chair. Queries for `demand/0a27b844` and `demand/0b05eae4` immediately precede the handler; both files are absent from the base extraction and full mod ISO. This is correlation, not a confirmed missing dependency: optional demand lookups also fail during normal play.
 
 The launcher was setting disabled switches to `$null` through .NET. On this machine that creates present, empty environment variables; native presence checks therefore enabled kernel tracing, performance reporting, GPU debugging, and the no-HRTF/no-reverb switches despite the recorded options being false. Disabled switches now use explicit removal, including when restoring the parent environment. A native-child inheritance regression verifies this without starting the game.
