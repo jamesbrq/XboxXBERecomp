@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 project(runtime_regressions LANGUAGES CXX)
 enable_testing()
-foreach(name stream_stop shader_cache)
+foreach(name stream_stop shader_cache door_routing)
     add_executable(${name} ${name}_test.cpp)
     target_include_directories(${name} PRIVATE ../../runtime)
     target_compile_features(${name} PRIVATE cxx_std_20)

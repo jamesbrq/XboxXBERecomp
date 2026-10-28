@@ -30,6 +30,10 @@ if(NOT GHOULIES_TOOLS_ONLY)
     add_xbe_image(Ghoulies default.xbe game.toml ${GAME_PARTITIONS} game)
     # CPU conversion avoids the raw input path's geometry corruption in this title.
     target_compile_definitions(Ghoulies PRIVATE XBE_RAW_VERTICES=0)
+    file(SHA1 ${CMAKE_CURRENT_SOURCE_DIR}/assets/default.xbe GHOULIES_IMAGE_SHA1)
+    if(GHOULIES_IMAGE_SHA1 STREQUAL "7193b60bc75240bdc0e75e184bbbb22b56e8e397")
+        target_compile_definitions(Ghoulies PRIVATE GHOULIES_WALKTEST=1)
+    endif()
     # The release runtime otherwise recompiles when an unchanged import library
     # leaves its native DLL older than the executable after a host-only edit.
     add_custom_target(ghoulies_test_ready ALL
