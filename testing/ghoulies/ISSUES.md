@@ -50,6 +50,16 @@ This fixes a concrete lifecycle defect, not proof that every reported missing SF
 
 ## Green smoke on ghoulie deaths
 
+### Captured depth-reconstruction defect and fix
+
+Manual F3 capture `runs/20261027-215335-403/215615` contains the reported effect. Draws 724 and 806 are depth-only screen quads (`cw 0`, depth write enabled) sampling the effects depth surface at `83739000`. Their captured pixel shader `ps_48AC3917B02CFD83.hlsl` calculates `dp2` and `dp3` but has no depth output. The translator grouped Xbox `PS_TEXTUREMODES_DOT_ZW` (0xA) with ordinary dotproduct (0x11), discarding the depth replacement side effect. These passes consequently used the quad's interpolated depth instead of the depth reconstructed from the texture, corrupting subsequent occlusion.
+
+Pixel shader generation now emits an `SV_Depth` output for a valid DOT_ZW preceded by DOTPRODUCT. It writes previous/current dot-product ratio, rejects out-of-range (including non-finite) results, and reverses the final depth when the backend uses reversed depth. Ordinary dotproducts and invalid predecessor combinations retain interpolated depth. This follows NVIDIA's [NV_texture_shader depth-replacement specification](https://registry.khronos.org/OpenGL/extensions/NV/NV_texture_shader.txt), section 3.8.13.1.21.
+
+The colour-channel clears in this capture were also inspected: the backend already handles the Xbox F0 channel mask. Old menu pixels outside the small offscreen cleared region do not by themselves establish a clear defect; no clear changes were made.
+
+New native tests generate and compile the captured project2d/dotproduct/DOT_ZW stage pattern, then use D3D shader reflection to verify a depth output in normal and reversed depth modes and quad variants. Ordinary dotproduct and invalid predecessor controls have no depth output. All four runtime regressions pass. Patched EXE/DLL rebuilt without a game launch; the current process was preserved through renamed `Ghoulies.before-effect-depth.*` files. Correct effect occlusion still requires manual validation on the next launch. Shader source changes automatically invalidate the corresponding disk cache entry.
+
 The user identified the death smoke specifically. The available gameplay capture at `runs/20261027-025133-864/025234` contains 68 blended draws: all have depth testing enabled with LESS_EQUAL; 57 disable depth writes. It does not establish a death-smoke frame, so it cannot identify the faulty draw or justify changing its depth test/sorting.
 
 No speculative occlusion change was applied. F3 captures now record depth mode, normalization scale, viewport depth range and shader depth parameters, alongside the existing vertices, constants, shaders and bound surfaces. Missing/incompatible depth surfaces produce warnings. A manual capture while the smoke overlaps scenery/player is needed to discriminate particle projection/offset errors from target binding or intentionally foreground effects. Automatic captures remain off by default.

@@ -882,7 +882,15 @@ std::string PixelHlsl(const PixelKey& k) {
         const char* type = t.shadow ? "Texture2D<float>" : t.kind == kTex3D ? "Texture3D" : t.kind == kTexCube ? "TextureCube" : "Texture2D";
         s += F("%s tex%d : register(t%d);\n%s smp%d : register(s%d);\n", type, i, i, t.shadow ? "SamplerComparisonState" : "SamplerState", i, i);
     }
-    s += F("float4 main(VOut i, bool front : SV_IsFrontFace) : SV_Target {\n");
+    int depth_stage = -1;
+    if (k.programmable) {
+        for (int stage = 1; stage < 4; ++stage)
+            if (((k.tex_modes >> (stage * 5)) & 0x1F) == 0xA &&
+                ((k.tex_modes >> ((stage - 1) * 5)) & 0x1F) == 0x11)
+                depth_stage = stage;
+    }
+    s += F("float4 main(VOut i, bool front : SV_IsFrontFace%s) : SV_Target {\n",
+           depth_stage >= 0 ? ", out float pixelDepth : SV_Depth" : "");
     // the pattern repeats over 32 pixels of the grid the console draws on: row 0 at the top, a row's bit 31 at the left
     if (k.stipple) {
         s += "    uint2 sp = uint2(i.pos.xy / stip.x) & 31;\n";
@@ -897,6 +905,15 @@ std::string PixelHlsl(const PixelKey& k) {
         for (int i = 0; i < 4; i++) {
             body += TexFetch(k, i);
             body += Hooks().Fetched(k.tex[i], i);
+        }
+        if (depth_stage >= 0) {
+            // NV_texture_shader DOT_PRODUCT_DEPTH_REPLACE (Xbox DOT_ZW):
+            // previous/current dot products replace window depth. Reject values
+            // outside the depth range; the backend's reversed storage is applied
+            // after the ratio, not by reversing its individual dot products.
+            body += F("float replacementDepth = dp%d / dp%d;\n", depth_stage - 1, depth_stage);
+            body += "if (!(replacementDepth >= 0 && replacementDepth <= 1)) discard;\n";
+            body += g_reversed_depth ? "pixelDepth = 1 - replacementDepth;\n" : "pixelDepth = replacementDepth;\n";
         }
         for (int i = 0; i < 4; i++) {
             uint32_t m = (k.tex_modes >> (i * 5)) & 0x1F;
