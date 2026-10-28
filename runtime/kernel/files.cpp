@@ -493,6 +493,13 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
         !write && !traced.empty() && Upper(f->xbox).find(traced) != std::string::npos)
         LOGI("read %s at %llu, %u of %u bytes", f->xbox.c_str(), (unsigned long long)pos, n, len);
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
+    if (!write && n < len) {
+        // Retain unexpected resource-read evidence even without full kernel tracing.
+        static std::atomic<unsigned> short_reads{0};
+        if (short_reads.fetch_add(1, std::memory_order_relaxed) < 64)
+            LOGR("short read %s at %llu: %u of %u bytes (caller %08X)", f->xbox.c_str(),
+                 (unsigned long long)pos, n, len, R32(a.ctx.esp));
+    }
     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
     return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
 }

@@ -12,6 +12,7 @@ param(
     [string]$InputScript
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'process-environment.ps1')
 $exe = Join-Path $PSScriptRoot "out\build\$Build\Ghoulies.exe"
 if (!(Test-Path -LiteralPath $exe)) { throw 'Build Ghoulies with build.bat first.' }
 $run = Join-Path $PSScriptRoot ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
@@ -31,7 +32,7 @@ $saved = @{}
 try {
     foreach ($key in $vars.Keys) {
         $saved[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
-        [Environment]::SetEnvironmentVariable($key, $vars[$key], 'Process')
+        Set-GhouliesProcessEnvironment $key $vars[$key]
     }
     $process = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -WindowStyle Hidden -PassThru
     if ($LeaveOpen -or !$Timed) {
@@ -65,5 +66,7 @@ try {
     Write-Host "Diagnostics saved to $run"
     if ($forced -or $process.ExitCode -ne 0) { throw 'Run ended abnormally; inspect result.json and logs.' }
 } finally {
-    foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key], 'Process') }
+    foreach ($key in $saved.Keys) {
+        Set-GhouliesProcessEnvironment $key $saved[$key]
+    }
 }

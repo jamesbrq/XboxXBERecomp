@@ -1949,6 +1949,19 @@ BUFFER(SetBufferData, 3) {
     ForgetBlocks(v);
     return 0;
 }
+static void ReportBufferStart(const Voice& v, uint32_t flags) {
+    // Short menu cues can start and finish between periodic mixer reports.
+    // Bound the report so normal play does not acquire continuous audio tracing.
+    static unsigned starts = 0;
+    if (starts++ >= 64) return;
+    LOGR("dsound: buffer start %08X data %08X bytes %u region %u+%u tag %X channels %u bits %u rate %u "
+         "play flags %X volume %.3f output %08X bins %u paused %u sync %u",
+         v.obj, v.data, v.bytes, v.play_start, v.play_len, v.tag, v.channels, v.bits, v.rate,
+         flags, v.volume, v.output, unsigned(v.nbins), unsigned(v.paused), unsigned(v.sync));
+    if (v.sync && !HAS_IDirectSound_SynchPlayback)
+        LOGR("dsound: synchronized buffer %08X is held but this title has no SynchPlayback hook", v.obj);
+}
+
 BUFFER(Play, 4) {
     Restart(v);
     v.playing = true;
@@ -1956,6 +1969,7 @@ BUFFER(Play, 4) {
     if (a[3] & 2) v.pos = 0;
     v.sync = a[3] & 4;
     StartSubmixes(v);
+    ReportBufferStart(v, a[3]);
     return 0;
 }
 // (this, REFERENCE_TIME, flags): the start time is not honoured, it plays now
@@ -1966,6 +1980,7 @@ BUFFER(PlayEx, 4) {
     if (a[3] & 2) v.pos = 0;
     v.sync = a[3] & 4;
     StartSubmixes(v);
+    ReportBufferStart(v, a[3]);
     return 0;
 }
 BUFFER(Stop, 1) {

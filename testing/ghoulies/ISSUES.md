@@ -2,6 +2,14 @@
 
 Work performed without a game launch or boot test.
 
+## Follow-up: menu confirm SFX and Grand Hallway failure
+
+The manual run `20261027-210008-572` entered the game's dirty-disc handler at 40.725 seconds (loading `dirtydisk_bitmap`), then exited with code 0 when closed. There is no new native exception dump. The user was walking in the Grand Hallway carrying a chair. Queries for `demand/0a27b844` and `demand/0b05eae4` immediately precede the handler; both files are absent from the base extraction and full mod ISO. This is correlation, not a confirmed missing dependency: optional demand lookups also fail during normal play.
+
+The launcher was setting disabled switches to `$null` through .NET. On this machine that creates present, empty environment variables; native presence checks therefore enabled kernel tracing, performance reporting, GPU debugging, and the no-HRTF/no-reverb switches despite the recorded options being false. Disabled switches now use explicit removal, including when restoring the parent environment. A native-child inheritance regression verifies this without starting the game.
+
+The missing A-button menu sound remains unconfirmed. The first 64 buffer starts now retain format, data/region, routing, volume, pause and synchronized-start state in ordinary logs, so short menu cues cannot disappear between periodic mixer reports. Held synchronized buffers explicitly report the unresolved SynchPlayback hook. Short file reads also retain path, offset, byte count and caller without requiring full kernel tracing. These are diagnostic changes, not a claimed fix for the menu sound or the Grand Hallway failure. The patched executable was rebuilt without booting it.
+
 ## Missing sound effects
 
 An asynchronous stream stop left `released` latched. `Process` accepted packets but refused playback, and `Pause(0)`/`Pause(2)` never cleared the latch. Stream reuse now retires old packets and resets stop state on those explicit start/resume operations. Automatic playback on late packets remains blocked, preserving the music-stop fix. Tests cover stop deadlines, repeated stops, late-packet blocking, explicit resume, synchronized reuse and reset.
