@@ -52,6 +52,16 @@ This fixes a concrete lifecycle defect, not proof that every reported missing SF
 
 ### Captured depth-reconstruction defect and fix
 
+### Follow-up: live depth alias and square boundary
+
+Newer F3 capture `runs/20261027-220934-543/221131` confirms `SV_Depth` is active but shows residual glow through the stair railing. Draw 1387 reconstructs depth using texture stage 1 at `83739000`, declared as LIN_A8R8G8B8 even though that memory is the offscreen depth surface. Draw 1388 composites colour from `83865000` over rectangle approximately [120,252.384]-[208,315.204]. The texture lookup previously keyed colour and depth separately, so this colour alias could miss the live depth surface and use a stale colour/guest copy.
+
+For a DOT_ZW pass whose two dot operands read the same colour alias of a known live depth target, the backend now binds that depth resource as ordinary scalar data, with point sampling rather than a shadow-comparison sampler. Shader generation uses its already-normalized depth value, respecting the backend's reversed convention, instead of treating the float depth as packed colour dot inputs. The selection is limited to the LIN_A8R8G8B8 alias and a valid DOTPRODUCT/DOT_ZW pair with matching input stages; normal colour textures and shadow comparisons keep their existing paths.
+
+An isolated partial colour clear associated with a depth target now records normalized texel-centre bounds. Sampling that colour target clamps its filter footprint to those bounds, avoiding old pixels outside the effect rectangle. Full/partial-channel/multi-rect clears reset the bound; a subsequent draw using a larger viewport invalidates it. This does not change geometry clipping or expand the glow rectangle.
+
+Regression shaders cover direct depth reads in both depth conventions, absence of the packed-colour ratio in this path, and compilation of bounded colour sampling. All four runtime tests pass. The patched EXE/DLL rebuilt without a boot test; visual correctness remains to be confirmed manually. Loaded files were preserved as `Ghoulies.before-effect-clipping.*`. A later process check found the previous run had exited with code `0x80000003`, `forcedTermination=false`; no close or stop command was issued during this work.
+
 Manual F3 capture `runs/20261027-215335-403/215615` contains the reported effect. Draws 724 and 806 are depth-only screen quads (`cw 0`, depth write enabled) sampling the effects depth surface at `83739000`. Their captured pixel shader `ps_48AC3917B02CFD83.hlsl` calculates `dp2` and `dp3` but has no depth output. The translator grouped Xbox `PS_TEXTUREMODES_DOT_ZW` (0xA) with ordinary dotproduct (0x11), discarding the depth replacement side effect. These passes consequently used the quad's interpolated depth instead of the depth reconstructed from the texture, corrupting subsequent occlusion.
 
 Pixel shader generation now emits an `SV_Depth` output for a valid DOT_ZW preceded by DOTPRODUCT. It writes previous/current dot-product ratio, rejects out-of-range (including non-finite) results, and reverses the final depth when the backend uses reversed depth. Ordinary dotproducts and invalid predecessor combinations retain interpolated depth. This follows NVIDIA's [NV_texture_shader depth-replacement specification](https://registry.khronos.org/OpenGL/extensions/NV/NV_texture_shader.txt), section 3.8.13.1.21.

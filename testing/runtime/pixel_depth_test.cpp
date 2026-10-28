@@ -45,6 +45,19 @@ int main() {
         assert(hlsl.find(reversed ? "pixelDepth = 1 - replacementDepth" : "pixelDepth = replacementDepth") != std::string::npos);
         Compile(hlsl, true);
         k.quad = 1; Compile(gpu::PixelHlsl(k), true); k.quad = 0;
+        // Captured pass reads the same live depth alias for both dot operands.
+        k.input_texture = (1 << 16) | (1 << 20);
+        k.tex[1].flags = gpu::kTexDepthValue | gpu::kTexTarget;
+        hlsl = gpu::PixelHlsl(k);
+        assert(hlsl.find(reversed ? "replacementDepth = 1 - t1.r" : "replacementDepth = t1.r") != std::string::npos);
+        assert(hlsl.find("replacementDepth = dp2 / dp3") == std::string::npos);
+        Compile(hlsl, true);
+        k.tex[1].flags = gpu::kTexTarget | gpu::kTexRegion;
+        hlsl = gpu::PixelHlsl(k);
+        assert(hlsl.find("sample_region[1].xy, sample_region[1].zw") != std::string::npos);
+        Compile(hlsl, true);
+        k.tex[1].flags = 0;
+        k.input_texture = 0;
     }
     k.tex_modes = (1 << 5) | (0x11 << 10) | (0x11 << 15);
     Compile(gpu::PixelHlsl(k), false); // Ordinary dots must retain interpolated depth.

@@ -37,6 +37,7 @@ struct Target {
     D3D12_RESOURCE_STATES fb_state = D3D12_RESOURCE_STATE_COPY_DEST;
     DXGI_FORMAT fmt = DXGI_FORMAT_B8G8R8A8_UNORM;
     float range = 1;         // colour held divided by it until the extension resolves the target
+    float sample_region[4] = {}; // partial clear viewport, normalized texel centres
     uint64_t tag = ~0ull;    // the extension's
 };
 

@@ -19,6 +19,8 @@ struct TexInfo {
 enum : uint8_t {
     kTexWide = 4,    // an upscaled target shrunk by the pass: each tap averaged over console texels
     kTexTarget = 8,  // a render target, read where the console's pixel offset puts it (DrawConstants::rtshift)
+    kTexDepthValue = 16, // live depth sampled as data, not a shadow comparison
+    kTexRegion = 32, // filter only within the target's freshly cleared viewport
 };
 
 struct PixelKey {
@@ -110,6 +112,7 @@ struct DrawConstants {
     float stip[4];       // host pixels per pixel of the target's grid, which the stipple pattern repeats over
     uint32_t stipple[32];  // the pattern's rows
     float zclip[4];      // the depth clip planes the title set (State::zplanes), near and far, and 1 while they clip
+    float sample_region[4][4]; // min/max normalized texel centres of partial target viewports
 };
 
 }  // namespace gpu

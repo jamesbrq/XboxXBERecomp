@@ -496,6 +496,7 @@ struct DrawTextures {
     bool rt[4] = {};            // stage samples a render target
     float k[4] = {1, 1, 1, 1};  // Extension::Sample's k
     float wide[4] = {};         // host texels per console texel of a target read into a smaller one, 0 otherwise
+    float sample_region[4][4] = {};
 };
 
 // what the last draw set on the command list, so the next one sets only what differs; anything else that sets them
@@ -1338,6 +1339,18 @@ bool D3D12Backend::BindTargets(const State& s) {
         LOG_FIRST(8, "d3d12: depth-enabled draw has no bound depth surface (guest %08X)", s.zs.data);
     if (!rt && !ds) return false;
     if (rt) {
+        // A later pass can legitimately extend a partially cleared target. In
+        // that case it is no longer a single isolated effect rectangle.
+        if (rt->sample_region[2] > rt->sample_region[0]) {
+            const auto& v = s.viewport;
+            const float x0 = v.x / float(rt->gw), y0 = v.y / float(rt->gh);
+            const float x1 = (v.x + v.w) / float(rt->gw), y1 = (v.y + v.h) / float(rt->gh);
+            if (x0 < rt->sample_region[0] - 1.0f / rt->w ||
+                y0 < rt->sample_region[1] - 1.0f / rt->h ||
+                x1 > rt->sample_region[2] + 1.0f / rt->w ||
+                y1 > rt->sample_region[3] + 1.0f / rt->h)
+                std::fill(std::begin(rt->sample_region), std::end(rt->sample_region), 0.0f);
+        }
         if (LatchCpuWrite(*rt)) UploadTarget(*rt, s.rt);
         Transition(rt->res.Get(), rt->state, D3D12_RESOURCE_STATE_RENDER_TARGET);
         rt->drawn = true;
@@ -1859,7 +1872,11 @@ ID3D12Resource* D3D12Backend::BindTargetTexture(const State& s, int stage, const
     // the console reads the pixels it is about to overwrite: give the draw a copy
     if (feedback) return Feedback(t);
     Transition(t.res.Get(), t.state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    if (t.depth) info.shadow = ShadowDepthKind(d.format);
+    if (t.depth && !(info.flags & kTexDepthValue)) info.shadow = ShadowDepthKind(d.format);
+    if (!t.depth && t.sample_region[2] > t.sample_region[0]) {
+        info.flags |= kTexRegion;
+        std::memcpy(stages.sample_region[stage], t.sample_region, sizeof(t.sample_region));
+    }
     info.kind = kTex2D;
     return t.res.Get();
 }
@@ -2160,6 +2177,23 @@ ID3D12Resource* D3D12Backend::BindTexture(const State& s, int stage, DrawTexture
     bool box = true;
     if (ext_) ext_->Sample(d.data, fi.depth, stage, alt, stages.k[stage], box);
     auto tit = targets_.find(SizedTargetKey(d.data, fi.depth, d.width, d.height) | alt);
+    // Ghoulies' DOT_ZW screen pass binds its offscreen depth memory as colour.
+    // Prefer the live GPU depth surface over an unrelated colour alias/CPU copy.
+    if (!fi.depth && s.ps && d.format == 0x12 && !d.cube && d.depth == 1) {
+        uint32_t modes = s.rs[kRsPsTextureModes];
+        for (int dot = 2; dot < 4; ++dot) {
+            uint32_t input = (s.ps->def[56] >> (dot == 2 ? 16 : 20)) & 0xF;
+            uint32_t previous = dot == 2 ? 0 : (s.ps->def[56] >> 16) & 0xF;
+            if (((modes >> (dot * 5)) & 31) != 0xA ||
+                ((modes >> ((dot - 1) * 5)) & 31) != 0x11 ||
+                input != uint32_t(stage) || previous != input) continue;
+            auto depth = targets_.find(SizedTargetKey(d.data, true, d.width, d.height));
+            if (depth != targets_.end() && &depth->second != draw_ds_) {
+                info.flags |= kTexDepthValue;
+                return BindTargetTexture(s, stage, d, depth->second, false, stages);
+            }
+        }
+    }
     if (tit != targets_.end() && !d.cube && d.depth == 1 && !fi.compressed) {
         return BindTargetTexture(s, stage, d, tit->second, box, stages);
     }
@@ -2209,6 +2243,10 @@ D3D12_SAMPLER_DESC StageSampler(const State& s, int i, const DrawTextures& stage
                                          : D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
         sd.ComparisonFunc = Cmp(s.rs[kRsShadowFunc]);
         sd.MaxAnisotropy = 0;
+    }
+    if (stages.info[i].flags & kTexDepthValue) {
+        sd.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sd.MaxAnisotropy = 1;
     }
     return sd;
 }
@@ -2444,6 +2482,7 @@ constexpr float kGlowBoxTexels = 3.0f;  // console texels across the box each wi
 void D3D12Backend::FillTexelConstants(int i, const TextureDesc& d, const DrawTextures& stages, DrawConstants& c) {
     c.texsize[i][0] = float(d.width);
     c.texsize[i][1] = float(d.height);
+    std::memcpy(c.sample_region[i], stages.sample_region[i], sizeof(c.sample_region[i]));
     if (!stages.rt[i]) return;
     float k = stages.k[i];
     // a 3 console texel box per tap keeps the console chain's glow width and brightness
@@ -3148,6 +3187,17 @@ void D3D12Backend::ClearTarget(Target& t, const State& s, const ClearArgs& c, st
         for (int i = 0; t.range != 1 && i < 3; i++) col[i] /= t.range;
         // D3DCLEAR_TARGET_R/G/B/A are bits 4 to 7, D3D12's write mask has the same order
         uint8_t mask = uint8_t((c.flags & kClearTarget) >> 4);
+        std::fill(std::begin(t.sample_region), std::end(t.sample_region), 0.0f);
+        if (mask == D3D12_COLOR_WRITE_ENABLE_ALL && rs.size() == 1 && s.zs.header) {
+            const auto& r = rs[0];
+            if (r.right > r.left && r.bottom > r.top &&
+                (r.left || r.top || r.right != LONG(t.w) || r.bottom != LONG(t.h))) {
+                t.sample_region[0] = (r.left + 0.5f) / t.w;
+                t.sample_region[1] = (r.top + 0.5f) / t.h;
+                t.sample_region[2] = (r.right - 0.5f) / t.w;
+                t.sample_region[3] = (r.bottom - 0.5f) / t.h;
+            }
+        }
         if (mask == D3D12_COLOR_WRITE_ENABLE_ALL) {
             cl_->ClearRenderTargetView(Cpu(rtv_heap_.Get(), t.view, rtv_inc_), col, UINT(rs.size()), rs.data());
         } else {

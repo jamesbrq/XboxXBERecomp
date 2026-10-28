@@ -60,6 +60,7 @@ const char* kCommonTail = R"(    float4 spread[4];
     float4 stip;
     uint4 stipple[8];
     float4 zclip;
+    float4 sample_region[4];
 };
 )";
 
@@ -394,7 +395,8 @@ std::string TexUv(const TexInfo& t, int i, const std::string& uv) {
     n += F(" + texsize[%d].zw", i);
     if (!(t.flags & kTexTarget)) return n;
     std::string step = "ddx(" + n + ") + ddy(" + n + ")";
-    return n + F(" + rtshift[%d] * (", i) + step + ")";
+    n += F(" + rtshift[%d] * (", i) + step + ")";
+    return (t.flags & kTexRegion) ? F("clamp(%s, sample_region[%d].xy, sample_region[%d].zw)", n.c_str(), i, i) : n;
 }
 
 // texture shader stage i, per its mode
@@ -911,7 +913,14 @@ std::string PixelHlsl(const PixelKey& k) {
             // previous/current dot products replace window depth. Reject values
             // outside the depth range; the backend's reversed storage is applied
             // after the ratio, not by reversing its individual dot products.
-            body += F("float replacementDepth = dp%d / dp%d;\n", depth_stage - 1, depth_stage);
+            const uint32_t input = depth_stage == 2 ? (k.input_texture >> 16) & 0xF : (k.input_texture >> 20) & 0xF;
+            if (input < 4 && (k.tex[input].flags & kTexDepthValue)) {
+                // A colour alias of a live depth surface already supplies the
+                // renderer's normalized depth. Do not reinterpret it as stale RGBA.
+                body += F("float replacementDepth = %st%u.r;\n", g_reversed_depth ? "1 - " : "", input);
+            } else {
+                body += F("float replacementDepth = dp%d / dp%d;\n", depth_stage - 1, depth_stage);
+            }
             body += "if (!(replacementDepth >= 0 && replacementDepth <= 1)) discard;\n";
             body += g_reversed_depth ? "pixelDepth = 1 - replacementDepth;\n" : "pixelDepth = replacementDepth;\n";
         }
