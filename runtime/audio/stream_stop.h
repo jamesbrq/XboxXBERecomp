@@ -30,7 +30,10 @@ struct StreamStop {
         const bool rearmed = RearmOnPause(mode);
         const bool starting = rearmed && queued && !active;
         if (starting) active = true;
-        paused = mode == 1 || mode == 3; // DSSTREAMPAUSE_PAUSENOACTIVATE
+        // Mode 3 must not impose an indefinite hold on submitted packets. The
+        // SDK's active-voice path clears pause/sync bits without activating an
+        // idle voice. Process remains responsible for activation when data arrives.
+        paused = mode == 1;
         sync = mode == 2;
         return starting;
     }
