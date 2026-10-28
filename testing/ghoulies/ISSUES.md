@@ -52,6 +52,14 @@ The missing A-button menu sound remains unconfirmed. The first 64 buffer starts 
 
 ## Missing sound effects
 
+### Follow-up: preserve packets queued before explicit resume
+
+The newest ordinary run log contains no buffer-start reports, so resident-buffer logging has not identified the missing A-button cue. The stream path was reviewed again. The earlier explicit-resume correction called `FlushStream` after rearming a stopped stream; that flush discards packets already queued for the next cue. `Process` is permitted before the owner's explicit resume, so this can erase a reused short SFX while still returning success to the caller.
+
+Explicit `Pause(0)`/`Pause(2)` now clears the stop latch without flushing the queue. If the stream has queued data and was inactive, it resets its cursor/filter state, activates playback, and starts its submixes. Pausing alone does not rearm; Process alone still cannot restart released music, and mixer stop completion still flushes late old-cue packets. The queue-before-resume case remains timing-sensitive if the caller leaves a stopped stream's packets pending across a mixer pass; this change does not claim to solve every reuse order.
+
+Tests now cover queue-before-resume activation, synchronized starts, inactive resume-before-queue, preserving a playing cue when cancelling a pending release, and pause-only blocking. All four runtime regressions pass. A capped ordinary-log trace of short stream starts and explicit resumes was added; setup-only pauses do not consume its resume report budget. This should identify whether the menu cue is submitted, synchronized/paused, or absent on the next manual test. The patched EXE/DLL rebuilt without a boot test and the user's current game remains open under preserved `Ghoulies.before-sfx-reuse.*` files. Missing menu SFX recovery is not yet confirmed by gameplay.
+
 An asynchronous stream stop left `released` latched. `Process` accepted packets but refused playback, and `Pause(0)`/`Pause(2)` never cleared the latch. Stream reuse now retires old packets and resets stop state on those explicit start/resume operations. Automatic playback on late packets remains blocked, preserving the music-stop fix. Tests cover stop deadlines, repeated stops, late-packet blocking, explicit resume, synchronized reuse and reset.
 
 This fixes a concrete lifecycle defect, not proof that every reported missing SFX shares that cause. Synchronized starts still warrant examination: the 5659 configuration has no resolved `IDirectSound_SynchPlayback` hook. With `-Diagnostics`, stream reports now include active/paused/sync/pending-stop/released state and packet counts to distinguish held voices from empty or silent input.

@@ -20,4 +20,20 @@ int main() {
     s.FinishStop();
     s.ResetStop();  // synchronous Flush/SetFormat
     assert(!s.released && !s.flush_pending && !s.StopDue(10000));
+    bool active = false, paused = false, sync = false;
+    s.RequestStop(1000, 0); s.FinishStop();
+    // New cue queued before resume: make it active instead of discarding it.
+    assert(s.Resume(0, true, active, paused, sync));
+    assert(active && !paused && !sync && !s.StopDue(10000));
+    s.RequestStop(2000, 0); s.FinishStop(); active = false;
+    assert(!s.Resume(1, true, active, paused, sync));
+    assert(s.released && !active && paused); // Pause does not rearm late data.
+    assert(s.Resume(2, true, active, paused, sync));
+    assert(active && !paused && sync && !s.released);
+    s.RequestStop(3000, 100); active = true;
+    assert(!s.Resume(0, true, active, paused, sync));
+    assert(active && !s.flush_pending && !s.released); // Cancel release without losing playback.
+    s.FinishStop(); active = false;
+    assert(!s.Resume(0, false, active, paused, sync));
+    assert(!active && !s.released); // Resume-before-Process remains valid too.
 }

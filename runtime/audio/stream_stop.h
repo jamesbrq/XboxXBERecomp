@@ -24,6 +24,16 @@ struct StreamStop {
         ResetStop();
         return true;
     }
+    // Resume is allowed after the caller queues the next cue's packets. Reset
+    // stop state without flushing that queue; Process alone still cannot rearm.
+    bool Resume(uint32_t mode, bool queued, bool& active, bool& paused, bool& sync) {
+        const bool rearmed = RearmOnPause(mode);
+        const bool starting = rearmed && queued && !active;
+        if (starting) active = true;
+        paused = mode == 1;
+        sync = mode == 2;
+        return starting;
+    }
 };
 
 }  // namespace audio

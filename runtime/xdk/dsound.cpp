@@ -2296,6 +2296,12 @@ STREAM(Process, 3) {
     if (starting) Restart(v);  // after going quiet a stream starts fresh
     v.active = true;
     if (starting) StartSubmixes(v);
+    if (starting) {
+        static unsigned reports = 0;
+        if (reports++ < 48)
+            LOGR("dsound: stream start %08X bytes %u tag %X channels %u rate %u volume %.3f output %08X paused %u sync %u",
+                 v.obj, pk.size, v.tag, v.channels, v.rate, v.volume, v.output, unsigned(v.paused), unsigned(v.sync));
+    }
     v.ending = false;
     return 0;
 }
@@ -2318,11 +2324,17 @@ STREAM(FlushEx, 4) {
     return 0;
 }
 STREAM(Pause, 2) {
-    // XACT reuses stream objects. An explicit resume/synchronized start begins
-    // a new cue; retire any late packets from the previous stopped cue first.
-    if (v.RearmOnPause(a[1])) FlushStream(v);
-    v.paused = a[1] == 1;
-    v.sync = a[1] == 2;
+    // A cue may enqueue data before resuming a reused stream. Flushing here
+    // discards that new sound. Only explicit Flush/stop completion retires data.
+    if (v.Resume(a[1], !v.packets.empty(), v.active, v.paused, v.sync)) {
+        v.pos = 0;
+        Restart(v);
+        StartSubmixes(v);
+    }
+    static unsigned reports = 0;
+    if (a[1] != 1 && reports++ < 48)
+        LOGR("dsound: stream pause %08X mode %u packets %zu active %u released %u sync %u",
+             v.obj, a[1], v.packets.size(), unsigned(v.active), unsigned(v.released), unsigned(v.sync));
     return 0;
 }
 STREAM(SetVolume, 2) {
