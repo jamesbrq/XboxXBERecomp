@@ -2386,8 +2386,7 @@ float HostSlopeScale(const State& s, const Target* ds) {
 }
 
 void D3D12Backend::KeyDepthStencil(const State& s, const Assembled& a, PsoKey& k) {
-    k.console_line = a.topology == Topology::Lines && !s.vs &&
-                     (a.pretransformed || !s.rs[kRsLighting]) && TargetScale() > kUpscaledMin;
+    k.console_line = ExpandConsoleLine(s, a, TargetScale());
     k.zen = s.rs[kRsZEnable] != 0;
     if (k.zen) {
         k.zwrite = SimpleState(s, kMZWriteEnable) != 0;
@@ -2832,6 +2831,7 @@ void D3D12Backend::CaptureDraw(const State& s, uint32_t prim, uint32_t count, co
             k.src, k.dst, k.zen, k.zfunc, k.zwrite, k.zbias, k.zslope, k.cull, k.wmask, c.pc[0][0], c.pc[0][1],
             c.pc[0][2], c.pc[0][3]);
     if (SimpleState(s, kMStippleEnable)) fprintf(cap_, " stipple %08X %08X", c.stipple[0], c.stipple[1]);
+    if (prim == 2 || prim == 3 || prim == 4) fprintf(cap_, " console_line %u lighting %u", k.console_line, s.rs[kRsLighting]);
     if (s.rs[kRsTwoSidedLighting]) fprintf(cap_, " twosided");
     CaptureTextures(s, stages);
 }

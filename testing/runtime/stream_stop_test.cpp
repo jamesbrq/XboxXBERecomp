@@ -36,4 +36,14 @@ int main() {
     s.FinishStop(); active = false;
     assert(!s.Resume(0, false, active, paused, sync));
     assert(!active && !s.released); // Resume-before-Process remains valid too.
+    // Exact menu-cue ordering from the log: Pause(3), Process, Pause(0).
+    assert(!s.Resume(3, false, active, paused, sync));
+    assert(paused && !active && !sync);
+    active = true; // Process accepts packets but the mixer must stay held.
+    assert(paused);
+    assert(!s.Resume(0, true, active, paused, sync));
+    assert(active && !paused && !sync);
+    s.FinishStop(); active = false;
+    assert(!s.Resume(3, true, active, paused, sync));
+    assert(s.released && paused && !active); // Preloading never rearms a stopped cue.
 }

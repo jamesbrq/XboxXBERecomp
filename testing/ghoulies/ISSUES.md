@@ -10,6 +10,8 @@ Upscaled, unlit fixed-function lines (including XYZRHW lines) now use a line-inp
 
 The regression compiles and reflects the geometry shader to verify line input, triangle-strip output and four output vertices. All four runtime regression executables pass, and the patched EXE/DLL rebuilt without a game launch. The running game remains open on the previous files, preserved as `Ghoulies.before-ui-lines.*`. Manual visual validation is pending restart.
 
+Later captures `20261027-224211-574/224318`, `224320`, and `224336` still contain the same fixed-function handle-0x43 panel line draws. The expansion selector also gated on the lighting render state; a stale enabled lighting flag could exclude these position/diffuse-only vertices even though they have no normal input. The shared selector now includes fixed-function lines without normals independently of that flag. A regression exercises lighting enabled with no normals, native-resolution exclusion, and preservation of programmable/lit-normal line paths. Captures now explicitly report `console_line` and lighting state for line draws. This correction and the mode-3 audio fix were rebuilt together without a boot test; process 30888 remained running on preserved `Ghoulies.before-menu-pause3.*` files.
+
 ## Follow-up: menu confirm SFX and Grand Hallway failure
 
 ### Confirmed live failure and prepared asset repair
@@ -51,6 +53,12 @@ The launcher was setting disabled switches to `$null` through .NET. On this mach
 The missing A-button menu sound remains unconfirmed. The first 64 buffer starts now retain format, data/region, routing, volume, pause and synchronized-start state in ordinary logs, so short menu cues cannot disappear between periodic mixer reports. Held synchronized buffers explicitly report the unresolved SynchPlayback hook. Short file reads also retain path, offset, byte count and caller without requiring full kernel tracing. These are diagnostic changes, not a claimed fix for the menu sound or the Grand Hallway failure. The patched executable was rebuilt without booting it.
 
 ## Missing sound effects
+
+### Latest menu logs: PAUSENOACTIVATE was treated as resume
+
+Run `20261027-224211-574` finally records short stream cues: e.g. stream `B0164800` is prepared with Pause(3), receives mono PCM 22050-Hz packets, then receives Pause(0). Other menu streams follow the same order. Existing code set `paused` only for mode 1, so mode 3 permitted playback during preparation; one later resume reports an already-empty packet queue. The selected SDK implementation at `0x1cb290` has a distinct mode-3 inactive-voice hold path (sets bit 0x20), consumed by its explicit mode-0 start path. Mode 3 is DSSTREAMPAUSE_PAUSENOACTIVATE, not resume.
+
+The host stream policy now holds modes 1 and 3. Only explicit resume/synchronized start clears the hold, and mode 3 cannot rearm a released stream. Regression tests reproduce the logged Pause(3) -> Process -> Pause(0) sequence and check both packet acceptance while held and release-state preservation. This fixes a concrete start-order defect evidenced in the menu path; audible menu-confirm recovery still requires manual confirmation.
 
 ### Follow-up: preserve packets queued before explicit resume
 

@@ -53,6 +53,11 @@ struct Assembled {
 };
 
 // the FVF bits translated to the register layout the XDK's declarations use
+inline bool ExpandConsoleLine(const State& s, const Assembled& a, float scale) {
+    return a.topology == Topology::Lines && !s.vs &&
+           (a.pretransformed || !(a.regs & (1u << 2)) || !s.rs[kRsLighting]) && scale > 1.01f;
+}
+
 void FvfInputs(uint32_t fvf, VertexShader& out);
 
 // false when there is nothing to draw

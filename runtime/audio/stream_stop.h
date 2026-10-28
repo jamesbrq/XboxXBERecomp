@@ -30,7 +30,7 @@ struct StreamStop {
         const bool rearmed = RearmOnPause(mode);
         const bool starting = rearmed && queued && !active;
         if (starting) active = true;
-        paused = mode == 1;
+        paused = mode == 1 || mode == 3; // DSSTREAMPAUSE_PAUSENOACTIVATE
         sync = mode == 2;
         return starting;
     }

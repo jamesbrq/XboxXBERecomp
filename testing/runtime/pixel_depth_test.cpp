@@ -2,6 +2,7 @@
 #include <array>
 #include <string>
 #include "gpu/shaders.h"
+#include "gpu/vertex.h"
 #include "kernel/kernel.h"
 #include <d3dcompiler.h>
 
@@ -32,6 +33,20 @@ static void Compile(const std::string& hlsl, bool depth) {
 }
 
 int main() {
+    {
+        gpu::State state;
+        gpu::Assembled lines;
+        lines.topology = gpu::Topology::Lines;
+        lines.regs = (1 << 0) | (1 << 3); // captured position/diffuse FVF, no normals
+        state.rs[gpu::kRsLighting] = 1;
+        assert(gpu::ExpandConsoleLine(state, lines, 3));
+        assert(!gpu::ExpandConsoleLine(state, lines, 1));
+        lines.regs |= 1 << 2;
+        assert(!gpu::ExpandConsoleLine(state, lines, 3));
+        state.vs = std::make_shared<gpu::VertexShader>();
+        lines.pretransformed = true;
+        assert(!gpu::ExpandConsoleLine(state, lines, 3));
+    }
     // The UI's line geometry shader must compile as line input -> four-vertex
     // triangle strip, preserving the vertex/pixel interface.
     {
