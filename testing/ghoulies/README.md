@@ -26,7 +26,11 @@ This project enables CPU vertex conversion to avoid observed corruption in the r
 
 `prepare-config.ps1`, run by `build.bat` after scanning, adds the confirmed gameplay callback at `0x7FFB0`. It is installed dynamically by `0x7FE10` and was missed by automatic discovery, causing an indirect-call trap from `0x72AD2` during gameplay. When building directly with CMake after a new scan, run `prepare-config.ps1` first. The override is kept in `config/extra-functions.inc`, outside the compiler's full-config search.
 
-`run.ps1` records logs, frame captures (`-CaptureEvery 5` for shorter intervals), a float WAV, SDK revision/dirty state, executable/config hashes, and the XBE hash in ignored timestamped `runs` folders. It requests a normal close after the time limit, then stops a hung process. A normal exit does not prove correct gameplay or audio. Crash dumps remain beside the executable in `CrashDumps`.
+`run.ps1` defaults to ordinary manual play: no periodic captures, kernel tracing, verbose reports or WAV recording. F3 still saves a frame. Use `-Diagnostics` for verbose/kernel/performance logs, `-AudioDump` for a float WAV, and `-CaptureEvery 30` only when periodic GPU readbacks are wanted. These diagnostics can introduce stutters. The run folder records SDK revision/dirty state, executable/config hashes and XBE identity when the game exits. Only `-Timed` requests a close after the time limit. Crash dumps remain beside the executable in `CrashDumps`.
+
+Compiled shaders persist under `out/build/patched/cache/shaders-v1`. Source, entry point, shader profile and compiler flags determine each key; invalid/truncated cache files are recompiled. This avoids repeated shader compilation on later launches, but previously unseen shaders and driver pipeline creation can still stall. Existing captured HLSL can be compiled into this cache with `testing/runtime/warm_shaders` without starting the game or creating a graphics device.
+
+Stopped audio streams are rearmed on an explicit resume/synchronized start, after retiring late packets from the old cue. Late packets alone still cannot restart stopped music. The green death-smoke occlusion issue remains unconfirmed: captures now include particle depth scale/range/offset values, and incompatible/missing depth targets produce bounded warnings. See [ISSUES.md](ISSUES.md) for evidence and remaining validation.
 
 Check intro movies, menu lighting, character lighting, room transitions and a playable room. For sound, test overlapping effects, music changes, pause/resume and room changes. Compare `-NoHrtf` and `-NoReverb` separately when diagnosing sound. `-DebugGpu` uses the D3D12 debug layer if Windows Graphics Tools are installed. `-InputScript path` reads an inline SDK controller script from that file.
 
@@ -41,3 +45,5 @@ cmake -S ../vertex -B out/vertex-tests -G Ninja -DCMAKE_CXX_COMPILER=clang++
 cmake --build out/vertex-tests
 ctest --test-dir out/vertex-tests --output-on-failure
 ```
+
+Stream lifecycle and persistent shader-cache tests are in `testing/runtime`; configure/build that directory and run CTest. They do not launch Ghoulies. On Windows its `warm_shaders` utility also validates actual HLSL compilation and cache round-trips from existing captures.

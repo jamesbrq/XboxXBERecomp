@@ -1,7 +1,9 @@
 param(
     [ValidateSet('patched', 'release')][string]$Build = 'patched',
     [ValidateRange(1, 3600)][int]$Seconds = 120,
-    [ValidateRange(1, 3600)][int]$CaptureEvery = 15,
+    [ValidateRange(0, 3600)][int]$CaptureEvery = 0,
+    [switch]$Diagnostics,
+    [switch]$AudioDump,
     [switch]$DebugGpu,
     [switch]$NoHrtf,
     [switch]$NoReverb,
@@ -15,9 +17,11 @@ if (!(Test-Path -LiteralPath $exe)) { throw 'Build Ghoulies with build.bat first
 $run = Join-Path $PSScriptRoot ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $run -Force | Out-Null
 $vars = @{
-    XBE_VERBOSE = '1'; XBE_PERF = '1'; XBE_TRACE_KERNEL = '1'
+    XBE_VERBOSE = $(if ($Diagnostics) { '1' } else { $null })
+    XBE_PERF = $(if ($Diagnostics) { '1' } else { $null })
+    XBE_TRACE_KERNEL = $(if ($Diagnostics) { '1' } else { $null })
     XBE_CAPTURE_DIR = $run; XBE_CAPTURE_EVERY = [string]$CaptureEvery
-    XBE_AUDIO_DUMP = (Join-Path $run 'audio.wav')
+    XBE_AUDIO_DUMP = $(if ($AudioDump) { Join-Path $run 'audio.wav' } else { $null })
     XBE_D3D12_DEBUG = $(if ($DebugGpu) { '1' } else { $null })
     XBE_NO_HRTF = $(if ($NoHrtf) { '1' } else { $null })
     XBE_NO_REVERB = $(if ($NoReverb) { '1' } else { $null })
@@ -51,6 +55,7 @@ try {
         configSha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'config\game.toml') -Algorithm SHA256).Hash
         seconds = $Seconds; exitCode = $process.ExitCode; forcedTermination = $forced
         build = $Build; leaveOpen = [bool]($LeaveOpen -or !$Timed)
+        diagnostics = [bool]$Diagnostics; audioDump = [bool]$AudioDump; captureEvery = $CaptureEvery
         noHrtf = [bool]$NoHrtf; noReverb = [bool]$NoReverb; debugGpu = [bool]$DebugGpu
         xbeSha1 = (Get-FileHash (Join-Path $PSScriptRoot 'assets\default.xbe') -Algorithm SHA1).Hash
     }

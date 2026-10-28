@@ -1,4 +1,4 @@
-// DirectSound (XDK 4831 and 5849) on a host software mixer. Buffers and streams are read from guest memory as they play.
+// DirectSound on a host software mixer. Buffers and streams are read from guest memory as they play.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "audio/audio.h"
+#include "audio/stream_stop.h"
 #include "core/diag.h"
 #include "xbe/xbe.h"
 #include "xdk/hle.h"
@@ -254,7 +255,7 @@ struct FilterState {
     float direct = 0, room = 0;
 };
 
-struct Voice {
+struct Voice : audio::StreamStop {
     uint32_t obj = 0;
     bool stream = false;
     int refs = 1;
@@ -267,8 +268,6 @@ struct Voice {
     uint32_t owned = 0;  // memory the library made for the buffer
     bool playing = false, looping = false, paused = false;
     bool sync = false;  // held until IDirectSound_SynchPlayback
-    bool flush_pending = false, released = false;
-    int64_t release_at = 0, release_ms = 0;
     uint32_t eg_release_ms = 0;
     bool active = false, ending = false;  // stream: took a packet since it went quiet, quiet again once they run out
     double pos = 0;  // frames
@@ -1276,9 +1275,8 @@ void Render(float* out, uint32_t frames) {
     for (auto& [obj, v] : g_voices) {
         // PR #3: complete asynchronous XACT stops on the mixer, after the caller
         // has marked the cue stopping; late packets complete on a later mix too.
-        if (v.released || (v.flush_pending && NowMs() - v.release_at >= v.release_ms)) {
-            v.flush_pending = false;
-            v.released = true;
+        if (v.StopDue(NowMs())) {
+            v.FinishStop();
             for (auto& packet : v.packets) Complete(v, packet, kFlushed);
             v.packets.clear();
             v.pos = 0;
@@ -1529,9 +1527,12 @@ void ReportMix() {
     m = Meters{};
     for (auto& [obj, v] : g_voices) {
         const Data3d* d = Data3dOf(v);
-        if (v.stream && v.active && !d && !IsSubmix(v)) {
-            LOGI("dsound: stream %08X (flags %X, %u channels, %u Hz, tag %X): source peak %.3f, mixed peak %.3f", obj,
-                 v.flags, v.channels, v.freq ? v.freq : v.rate, v.tag, v.source_peak, v.out_peak);
+        if (v.stream && (v.active || v.released || !v.packets.empty()) && !IsSubmix(v)) {
+            LOGI("dsound: stream %08X (flags %X, %u channels, %u Hz, tag %X): source peak %.3f, mixed peak %.3f; "
+                 "active %u paused %u sync %u stop %u/%u packets %zu", obj,
+                 v.flags, v.channels, v.freq ? v.freq : v.rate, v.tag, v.source_peak, v.out_peak,
+                 unsigned(v.active), unsigned(v.paused), unsigned(v.sync), unsigned(v.flush_pending),
+                 unsigned(v.released), v.packets.size());
         }
         v.source_peak = v.out_peak = 0;
         uint32_t sources = 0;
@@ -2221,7 +2222,7 @@ HLE_STDCALL(IDirectSound_CreateSoundStream, 4) { return NewStream(a[1], a[2]); }
 
 // the stream's callbacks still queued and those of its flushed packets, in order, go to the calling thread
 static void FlushStream(Voice& v) {
-    v.flush_pending = v.released = false;
+    v.ResetStop();
     for (auto& pk : v.packets) Complete(v, pk, kFlushed);
     v.packets.clear();
     v.pos = 0;
@@ -2295,15 +2296,16 @@ STREAM(Flush, 1) {
 STREAM(FlushEx, 4) {
     if (a[3] && !v.active) return 0;
     if (a[3] & 1) {
-        if (!v.flush_pending) v.release_at = NowMs();
-        v.release_ms = a[3] & 6 ? v.eg_release_ms : 0;
-        v.flush_pending = true;
+        v.RequestStop(NowMs(), a[3] & 6 ? v.eg_release_ms : 0);
         return 0;
     }
     FlushStream(v);
     return 0;
 }
 STREAM(Pause, 2) {
+    // XACT reuses stream objects. An explicit resume/synchronized start begins
+    // a new cue; retire any late packets from the previous stopped cue first.
+    if (v.RearmOnPause(a[1])) FlushStream(v);
     v.paused = a[1] == 1;
     v.sync = a[1] == 2;
     return 0;

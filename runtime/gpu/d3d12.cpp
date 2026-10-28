@@ -36,6 +36,7 @@
 #include "gpu/block_decode.h"
 #include "gpu/ext.h"
 #include "gpu/shaders.h"
+#include "gpu/shader_cache.h"
 #include "gpu/texture.h"
 #include "gpu/texturedumper.h"
 #include "gpu/vertex.h"
@@ -1328,7 +1329,13 @@ void D3D12Backend::UpdateTargetUsed(uint32_t data) {
 bool D3D12Backend::BindTargets(const State& s) {
     Target* rt = EnsureTarget(s.rt, false);
     Target* ds = s.rs[kRsZEnable] || s.rs[kRsStencilEnable] ? EnsureTarget(s.zs, true) : nullptr;
-    if (rt && ds && (rt->w != ds->w || rt->h != ds->h)) ds = nullptr;
+    if (rt && ds && (rt->w != ds->w || rt->h != ds->h)) {
+        LOG_FIRST(8, "d3d12: incompatible depth target: color %08X %ux%u, depth %08X %ux%u",
+                  rt->data, rt->w, rt->h, ds->data, ds->w, ds->h);
+        ds = nullptr;
+    }
+    if (s.rs[kRsZEnable] && !ds)
+        LOG_FIRST(8, "d3d12: depth-enabled draw has no bound depth surface (guest %08X)", s.zs.data);
     if (!rt && !ds) return false;
     if (rt) {
         if (LatchCpuWrite(*rt)) UploadTarget(*rt, s.rt);
@@ -1555,16 +1562,29 @@ ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const
     if (it != blobs_.end()) return it->second.Get();
     ComPtr<ID3DBlob> code;
     ComPtr<ID3DBlob> err;
+    constexpr uint32_t compile_flags = D3DCOMPILE_OPTIMIZATION_LEVEL1;
+    uint64_t disk_key = ShaderCacheKey(src, entry, profile, compile_flags);
+    char filename[32];
+    snprintf(filename, sizeof(filename), "%016llX.bin", static_cast<unsigned long long>(disk_key));
+    auto cache_path = app::ExeDir() / "cache" / "shaders-v1" / filename;
+    std::vector<uint8_t> cached;
+    if (ReadShaderCache(cache_path, disk_key, cached) && cached.size() >= 32 &&
+        !std::memcmp(cached.data(), "DXBC", 4) && SUCCEEDED(D3DCreateBlob(cached.size(), &code))) {
+        std::memcpy(code->GetBufferPointer(), cached.data(), cached.size());
+        blobs_[hash] = code;
+        return code.Get();
+    }
     PerfScope perf_compile{g_perf.compile};
     g_perf.shaders++;
     HRESULT hr = D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, entry, profile,
-                            D3DCOMPILE_OPTIMIZATION_LEVEL1, 0, &code, &err);
+                            compile_flags, 0, &code, &err);
     if (FAILED(hr)) {
         LOGE("d3d12: %s compile failed: %s", profile, err ? static_cast<const char*>(err->GetBufferPointer()) : "?");
         LOGE("%s", src.c_str());
         blobs_[hash] = nullptr;
         return nullptr;
     }
+    WriteShaderCache(cache_path, disk_key, code->GetBufferPointer(), code->GetBufferSize());
     blobs_[hash] = code;
     return code.Get();
 }
@@ -2692,6 +2712,9 @@ constexpr int kVsConstants = 192;
 constexpr int kVsConstantBias = 96;
 
 void D3D12Backend::CaptureInputs(const State& s, const Assembled& a, const DrawConstants& c) {
+    fprintf(cap_, "\n     depth mode%u scale%g viewport[%g,%g] surf[%g,%g,%g] params[%g,%g,%g]",
+            s.rs[kRsZEnable], s.zscale, s.viewport.min_z, s.viewport.max_z,
+            c.surf[0], c.surf[1], c.surf[2], c.zparams[0], c.zparams[1], c.zparams[2]);
     fprintf(cap_, "\n     streams");
     const auto& streams = s.custom_input ? s.input_streams : s.streams;
     for (size_t stream = 0; stream < streams.size(); stream++) {
